@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+/* ── Raw semantic palette: light = default, dark = override ─────────── */
+:root {
+  --bg:            #ffffff;
+  --surface:       #f6f7f9;
+  --elevated:      #ffffff;
+  --hover:         #eef0f3;
+  --border:        #e4e7eb;
+  --border-strong: #d4d8de;
+  --fg:            #16181d;
+  --muted:         #5f6672;
+  --faint:         #9aa1ad;
+  --accent:        #5e6ad2;   /* Linear violet */
+  --accent-strong: #4c56c0;
+  --on-accent:     #ffffff;   /* text on accent fills */
+  --ok:            #2f9e54;
+  --warn:          #c2820a;
+  --danger:        #d23f3f;
+  --overlay:       rgba(16,18,23,0.40);
+  --scrollbar:     rgba(0,0,0,0.18);
+  --scrollbar-hover: rgba(0,0,0,0.30);
+  --shimmer:       rgba(0,0,0,0.05);
+
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 13px;
+  --shadow-sm: 0 1px 2px rgba(16,18,23,0.06), 0 1px 1px rgba(16,18,23,0.04);
+  --shadow-md: 0 4px 12px rgba(16,18,23,0.10), 0 1px 3px rgba(16,18,23,0.06);
+  --shadow-lg: 0 12px 32px rgba(16,18,23,0.16), 0 2px 8px rgba(16,18,23,0.08);
+  --dur-fast: 110ms;
+  --dur-base: 170ms;
+  --dur-slow: 260ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="dark"] {
+  --bg:            #0c0d10;
+  --surface:       #131418;
+  --elevated:      #1a1c21;
+  --hover:         #202329;
+  --border:        #262931;
+  --border-strong: #383c45;
+  --fg:            #e8eaed;
+  --muted:         #8b8f98;
+  --faint:         #565b64;
+  --accent:        #6e79e0;
+  --accent-strong: #818cf0;
+  --on-accent:     #ffffff;
+  --ok:            #34d399;
+  --warn:          #fbbf24;
+  --danger:        #f87171;
+  --overlay:       rgba(0,0,0,0.55);
+  --scrollbar:     rgba(255,255,255,0.10);
+  --scrollbar-hover: rgba(255,255,255,0.18);
+  --shimmer:       rgba(255,255,255,0.05);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.40);
+  --shadow-md: 0 4px 14px rgba(0,0,0,0.45);
+  --shadow-lg: 0 14px 40px rgba(0,0,0,0.55);
+}
+
+/* ── Map vào utilities Tailwind (inline = follow runtime var) ───────── */
+@theme inline {
+  --color-bg:            var(--bg);
+  --color-surface:       var(--surface);
+  --color-elevated:      var(--elevated);
+  --color-hover:         var(--hover);
+  --color-border:        var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg:            var(--fg);
+  --color-muted:         var(--muted);
+  --color-faint:         var(--faint);
+  --color-accent:        var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-on-accent:     var(--on-accent);
+  --color-ok:            var(--ok);
+  --color-warn:          var(--warn);
+  --color-danger:        var(--danger);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+}
+
+html, body, #root { height: 100%; }
+body { background: var(--bg); color: var(--fg); }
+
+/* ── Skeleton shimmer ─────────────────────────────────────────────── */
+@keyframes shimmer { 0% { background-position: -600px 0; } 100% { background-position: 600px 0; } }
+.skeleton-shimmer {
+  background: linear-gradient(90deg, transparent 0%, var(--shimmer) 50%, transparent 100%);
+  background-size: 600px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+/* ── Toast slide-in ───────────────────────────────────────────────── */
+@keyframes toastIn { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.toast-enter { animation: toastIn var(--dur-slow) var(--ease-out); }
+
+/* ── Motion primitives ────────────────────────────────────────────── */
+@keyframes popIn { from { opacity: 0; transform: scale(0.97) translateY(4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.anim-pop  { animation: popIn var(--dur-base) var(--ease-out); }
+.anim-fade { animation: fadeIn var(--dur-base) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+/* ── Scrollbar styling ────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); border: 2px solid transparent; background-clip: content-box; }
+
+/* ── Cell text selectable, header not ───────────────────────────────── */
+td { user-select: text; }
+th { user-select: none; }
