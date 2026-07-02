@@ -3,6 +3,7 @@ import CodeMirror from "@uiw/react-codemirror";
 import { sql } from "@codemirror/lang-sql";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { keymap } from "@codemirror/view";
+import { StreamLanguage } from "@codemirror/language";
 import type { EditorView } from "@codemirror/view";
 import { Play, Loader2, TableProperties, Maximize2, AlertCircle, ChevronDown, Sparkles, Bookmark } from "lucide-react";
 import { runQuery } from "../object-view/objectApi";
@@ -13,6 +14,42 @@ import { SavedQueriesPanel } from "../saved-queries/SavedQueriesPanel";
 import { useConnectionStore } from "../connection/connectionStore";
 import { useThemeStore } from "../../stores/themeStore";
 import type { QueryResult } from "../../shared/types";
+
+// MQL (MongoDB Query Language) syntax highlighting
+const mqlLanguage = StreamLanguage.define({
+  token(stream) {
+    // Skip whitespace
+    if (stream.eatSpace()) return null;
+
+    // Strings (single and double quotes)
+    if (stream.match(/^["'][^"']*["']/)) return "string";
+    if (stream.match(/^""/)) return "string";
+
+    // Numbers
+    if (stream.match(/^-?\d+\.?\d*/)) return "number";
+
+    // Boolean and null
+    if (stream.match(/^true\b/)) return "keyword";
+    if (stream.match(/^false\b/)) return "keyword";
+    if (stream.match(/^null\b/)) return "keyword";
+
+    // Operators
+    if (stream.match(/^[{}[\]():,]/)) return "bracket";
+    if (stream.match(/^[<>]=?|==|!=|\+|\-|\*|\/|\$]/)) return "operator";
+
+    // MongoDB operators (starting with $)
+    if (stream.match(/^\$\w+/)) return "keyword";
+
+    // Identifiers (field names, collection names)
+    if (stream.match(/^[a-zA-Z_]\w*/)) {
+      return "variable";
+    }
+
+    // Move past any other character
+    stream.next();
+    return null;
+  },
+});
 
 const MAX_CELL_LEN = 80;
 
@@ -76,10 +113,22 @@ export function SqlConsoleShell() {
   const pref = useThemeStore((s) => s.pref);
   const isDark = pref === "dark" || (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
+  // Get connection type for syntax highlighting
+  const currentConnection = activeConnections.find((c) => c.id === connId);
+  const isMongoConnection = currentConnection?.db_type === "mongodb";
+
   useEffect(() => {
-    setConnId((prev) => prev || activeConnectionId || activeConnections[0]?.id || "");
+    const newConnId = connId || activeConnectionId || activeConnections[0]?.id || "";
+    setConnId(newConnId);
+
+    // Set default query based on connection type when connection changes
+    const newConn = activeConnections.find((c) => c.id === newConnId);
+    if (newConn && !query) {
+      setQuery(newConn.db_type === "mongodb" ? "db.collection.find({})" : "SELECT 1;");
+    }
   }, [activeConnectionId, activeConnections]);
-  const [query, setQuery] = useState("SELECT 1;");
+
+  const [query, setQuery] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
@@ -164,8 +213,9 @@ export function SqlConsoleShell() {
     }
   }, [aiPrompt, aiLoading, connId, loadSqlIntoEditor]);
 
+  // Choose language extension based on connection type
   const cmExtensions = [
-    sql(),
+    isMongoConnection ? mqlLanguage : sql(),
     keymap.of([{ key: "Mod-Enter", run: () => { execute(); return true; } }]),
   ];
 
