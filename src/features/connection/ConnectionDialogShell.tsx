@@ -6,18 +6,14 @@ import { saveConnection, connectConnection, testConnection } from "./connectionA
 import { useConnectionStore } from "./connectionStore";
 import { Button } from "../../shared/ui/Button";
 import { Input } from "../../shared/ui/Input";
+import { ENGINE_META } from "./engineMeta";
 
 interface ConnectionDialogShellProps {
   onClose: () => void;
   initial?: ConnectionConfig;
 }
 
-interface EngineOption { id: DbType; label: string; }
-const ENGINES: EngineOption[] = [
-  { id: "postgres", label: "PostgreSQL" },
-  { id: "mysql", label: "MySQL" },
-  { id: "mongodb", label: "MongoDB" },
-];
+const ENGINE_IDS: DbType[] = ["postgres", "mysql", "mongodb"];
 
 type TestState = "idle" | "testing" | "ok" | "fail";
 
@@ -85,16 +81,25 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
           <div>
             <label className={labelCls}>Database Type</label>
             <div className="grid grid-cols-3 gap-2">
-              {ENGINES.map((e) => (
-                <button key={e.id} type="button" onClick={() => handleEngine(e.id)}
-                  className={`py-3 rounded-[var(--radius-md)] border-2 text-xs font-medium transition-all ${
-                    form.db_type === e.id
-                      ? "border-accent text-fg bg-accent/10"
-                      : "border-border text-muted hover:text-fg hover:bg-hover"
-                  }`}>
-                  {e.label}
-                </button>
-              ))}
+              {ENGINE_IDS.map((id) => {
+                const meta = ENGINE_META[id];
+                const Icon = meta.icon;
+                const selected = form.db_type === id;
+                return (
+                  <button key={id} type="button" onClick={() => handleEngine(id)}
+                    className={`flex flex-col items-center gap-2 py-3.5 rounded-[var(--radius-md)] border-2 transition-all ${
+                      selected
+                        ? `${meta.border} ${meta.bg}`
+                        : "border-border bg-transparent hover:border-accent/40 hover:bg-hover"
+                    }`}>
+                    <Icon size={20} className={selected ? meta.color : "text-muted"} />
+                    <div className="text-center leading-tight">
+                      <div className={`text-[11px] font-semibold ${selected ? "text-fg" : "text-muted"}`}>{meta.label}</div>
+                      <div className={`text-[9px] mt-0.5 ${selected ? "text-muted" : "text-muted/70"}`}>{meta.desc}</div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
