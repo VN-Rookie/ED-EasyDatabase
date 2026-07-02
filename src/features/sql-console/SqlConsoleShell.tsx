@@ -13,6 +13,7 @@ import { generateSql } from "./aiApi";
 import { listTables, describeTable } from "../explorer/schemaApi";
 import { CellDetailModal } from "../../shared/ui/CellDetailModal";
 import { SavedQueriesPanel } from "../saved-queries/SavedQueriesPanel";
+import { QueryTabsBar, type QueryTab } from "./QueryTabsBar";
 import { useConnectionStore } from "../connection/connectionStore";
 import { useThemeStore } from "../../stores/themeStore";
 import type { QueryResult, TableInfo } from "../../shared/types";
@@ -147,8 +148,9 @@ export function SqlConsoleShell() {
 
     // Set default query based on connection type when connection changes
     const newConn = activeConnections.find((c) => c.id === newConnId);
-    if (newConn && !query) {
-      setQuery(newConn.db_type === "mongodb" ? "db.collection.find({})" : "SELECT 1;");
+    if (newConn && !currentQuery) {
+      const defaultQuery = newConn.db_type === "mongodb" ? "db.collection.find({})" : "SELECT 1;";
+      updateTabQuery(defaultQuery);
     }
   }, [activeConnectionId, activeConnections]);
 
@@ -185,7 +187,6 @@ export function SqlConsoleShell() {
     loadSchema();
   }, [connId, isMongoConnection]);
 
-  const [query, setQuery] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
@@ -203,6 +204,57 @@ export function SqlConsoleShell() {
     tableColumns: new Map(),
     timestamp: 0,
   });
+
+  // Tabs state
+  const [tabs, setTabs] = useState<QueryTab[]>([
+    { id: "tab-1", title: "Query 1", query: "", isModified: false },
+  ]);
+  const [activeTabId, setActiveTabId] = useState("tab-1");
+  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+
+  // Sync query with active tab
+  const currentQuery = activeTab?.query ?? "";
+
+  const handleAddTab = useCallback(() => {
+    const newId = `tab-${Date.now()}`;
+    setTabs((prev) => [
+      ...prev,
+      { id: newId, title: `Query ${prev.length + 1}`, query: "", isModified: false },
+    ]);
+    setActiveTabId(newId);
+  }, []);
+
+  const handleCloseTab = useCallback((id: string) => {
+    setTabs((prev) => {
+      if (prev.length <= 1) return prev;
+      const newTabs = prev.filter((t) => t.id !== id);
+      if (activeTabId === id) {
+        const idx = prev.findIndex((t) => t.id === id);
+        const newActiveIdx = Math.min(idx, newTabs.length - 1);
+        setActiveTabId(newTabs[newActiveIdx].id);
+      }
+      return newTabs;
+    });
+  }, [activeTabId]);
+
+  const handleSelectTab = useCallback((id: string) => {
+    setActiveTabId(id);
+  }, []);
+
+  const handleRenameTab = useCallback((id: string, title: string) => {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, title } : t))
+    );
+  }, []);
+
+  const updateTabQuery = useCallback((newQuery: string) => {
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId ? { ...t, query: newQuery, isModified: true } : t
+      )
+    );
+  }, [activeTabId]);
+
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
 
   const onDragStart = useCallback((e: PointerEvent<HTMLDivElement>) => {
@@ -225,7 +277,7 @@ export function SqlConsoleShell() {
     const sel = view?.state.selection.main;
     const textToRun = (sel && sel.from !== sel.to)
       ? view!.state.sliceDoc(sel.from, sel.to)
-      : query;
+      : currentQuery;
     if (!textToRun.trim()) return;
     setRunning(true);
     setResult(null);
@@ -241,22 +293,22 @@ export function SqlConsoleShell() {
       setElapsed(Date.now() - startRef.current);
       setRunning(false);
     }
-  }, [connId, query, running]);
+  }, [connId, currentQuery, running]);
 
   const loadSqlIntoEditor = useCallback((sqlStr: string) => {
-    setQuery(sqlStr);
+    updateTabQuery(sqlStr);
     if (viewRef.current) {
       const view = viewRef.current;
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: sqlStr } });
     }
-  }, []);
+  }, [updateTabQuery]);
 
   const formatQuery = useCallback(() => {
-    if (!query.trim()) return;
+    if (!currentQuery.trim()) return;
     // Only format for SQL databases, skip for MongoDB
     if (isMongoConnection) return;
     try {
-      const formatted = format(query, {
+      const formatted = format(currentQuery, {
         language: "postgresql",
         keywordCase: "upper",
         indentStyle: "standard",
@@ -265,7 +317,7 @@ export function SqlConsoleShell() {
     } catch {
       // Silently fail for invalid SQL - formatting is best-effort
     }
-  }, [query, isMongoConnection, loadSqlIntoEditor]);
+  }, [currentQuery, isMongoConnection, loadSqlIntoEditor]);
 
   const generateQuery = useCallback(async () => {
     if (!aiPrompt.trim() || aiLoading) return;
@@ -378,7 +430,7 @@ export function SqlConsoleShell() {
         <button
           onMouseDown={(e) => e.preventDefault()}
           onClick={formatQuery}
-          disabled={noConn || !query.trim()}
+          disabled={noConn || !currentQuery.trim()}
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-[var(--radius-sm)] border border-border text-xs font-medium text-muted hover:text-fg hover:border-accent hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           title="Format SQL"
         >
@@ -447,14 +499,24 @@ export function SqlConsoleShell() {
         </div>
       )}
 
+      {/* Tabs bar */}
+      <QueryTabsBar
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onSelectTab={handleSelectTab}
+        onAddTab={handleAddTab}
+        onCloseTab={handleCloseTab}
+        onRenameTab={handleRenameTab}
+      />
+
       {/* Editor + Snippets side panel */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Editor */}
           <div className="flex-1 min-h-0 overflow-hidden">
             <CodeMirror
-              value={query}
-              onChange={setQuery}
+              value={currentQuery}
+              onChange={updateTabQuery}
               onCreateEditor={(view) => { viewRef.current = view; }}
               theme={isDark ? oneDark : "light"}
               extensions={cmExtensions}
@@ -503,7 +565,7 @@ export function SqlConsoleShell() {
         </div>
         {snippetsOpen && (
           <SavedQueriesPanel
-            currentSql={query}
+            currentSql={currentQuery}
             onLoad={loadSqlIntoEditor}
             onRun={(sqlStr) => { loadSqlIntoEditor(sqlStr); execute(); }}
             onClose={() => setSnippetsOpen(false)}
