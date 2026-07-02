@@ -34,6 +34,16 @@ pub struct IndexInfo {
     pub index_type: String,
 }
 
+#[derive(Serialize)]
+pub struct ForeignKeyInfo {
+    pub name: String,
+    pub columns: String,
+    pub referenced_table: String,
+    pub referenced_columns: String,
+    pub on_update: Option<String>,
+    pub on_delete: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ConnectionConfig {
     pub id: String,
