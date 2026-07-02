@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import type { ConnectionConfig, DbType } from "../../shared/types";
 import { DEFAULT_PORTS } from "../../shared/types";
@@ -35,6 +35,17 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
   const [testError, setTestError] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { nameInputRef.current?.focus(); }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   const patch = (f: Partial<ConnectionConfig>) => setForm((p) => ({ ...p, ...f }));
   const isMongo = form.db_type === "mongodb";
@@ -67,8 +78,11 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
   };
 
   return (
-    <div className="fixed inset-0 bg-[var(--overlay)] flex items-center justify-center z-50 p-4 anim-fade">
-      <div className="bg-surface border border-border rounded-[var(--radius-lg)] anim-pop w-[500px] shadow-lg overflow-auto max-h-[90vh]">
+    <div className="fixed inset-0 bg-[var(--overlay)] flex items-center justify-center z-50 p-4 anim-fade" onClick={onClose}>
+      <div
+        className="bg-surface border border-border rounded-[var(--radius-lg)] anim-pop w-[500px] shadow-lg overflow-auto max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="font-semibold text-[15px] text-fg">{initial ? "Edit Connection" : "New Connection"}</h2>
           <button type="button" onClick={onClose}
@@ -105,7 +119,7 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
 
           <div>
             <label className={labelCls}>Name</label>
-            <Input value={form.name} onChange={(e) => patch({ name: e.target.value })} placeholder="My connection" />
+            <Input ref={nameInputRef} value={form.name} onChange={(e) => patch({ name: e.target.value })} placeholder="My connection" />
           </div>
 
           {isMongo ? (
