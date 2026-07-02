@@ -22,11 +22,11 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [connectError, setConnectError] = useState("");
   const [tables, setTables] = useState<Record<string, TableInfo[]>>({});
   const [tablesBusy, setTablesBusy] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [connectionErrors, setConnectionErrors] = useState<Record<string, string>>({});
 
   const filteredConnections = useMemo(() => {
     if (!filter.trim()) return savedConnections;
@@ -51,7 +51,8 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
   const handleConnect = async (id: string) => {
     const config = savedConnections.find((c) => c.id === id);
     if (!config) return;
-    setBusyId(id); setConnectError("");
+    setBusyId(id);
+    setConnectionErrors((prev) => { const n = { ...prev }; delete n[id]; return n; });
     try {
       const meta = await connectConnection(config);
       addActiveConnection(meta);
@@ -60,7 +61,7 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
       setOpen((prev) => new Set(prev).add(id));
       await loadTablesForConn(id);
     } catch (e) {
-      setConnectError(String(e));
+      setConnectionErrors((prev) => ({ ...prev, [id]: String(e) }));
     } finally {
       setBusyId(null);
     }
@@ -73,7 +74,7 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
       const list = await listTables(id);
       setTables((prev) => ({ ...prev, [id]: list }));
     } catch (e) {
-      setConnectError(String(e));
+      setConnectionErrors((prev) => ({ ...prev, [id]: String(e) }));
     } finally {
       setTablesBusy(null);
     }
@@ -87,11 +88,12 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
 
   const handleDisconnect = async (id: string) => {
     setBusyId(id);
+    setConnectionErrors((prev) => { const n = { ...prev }; delete n[id]; return n; });
     try {
       await disconnectConnection(id);
       removeActiveConnection(id);
     } catch (e) {
-      setConnectError(String(e));
+      setConnectionErrors((prev) => ({ ...prev, [id]: String(e) }));
     } finally {
       setBusyId(null);
     }
@@ -99,12 +101,13 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
 
   const handleDelete = async (id: string) => {
     setPendingDelete(null);
+    setConnectionErrors((prev) => { const n = { ...prev }; delete n[id]; return n; });
     try {
       if (isActive(id)) { await disconnectConnection(id); removeActiveConnection(id); }
       await deleteSavedConnection(id);
       removeSavedConnection(id);
     } catch (e) {
-      setConnectError(String(e));
+      setConnectionErrors((prev) => ({ ...prev, [id]: String(e) }));
     }
   };
 
@@ -130,7 +133,6 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
       )}
 
       {loadError && <div className="px-3 py-2 text-[11px] text-danger">{loadError}</div>}
-      {connectError && <div className="px-3 py-2 text-[11px] text-danger break-words">{connectError}</div>}
       {!loadError && savedConnections.length === 0 && (
         <div className="px-3 py-2 text-[11px] text-muted">No connections yet — use "New Connection".</div>
       )}
@@ -183,6 +185,11 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
                 )}
               </div>
             </div>
+            {connectionErrors[conn.id] && (
+              <div className="pl-9 pr-2 py-1 text-[10px] text-danger break-words">
+                {connectionErrors[conn.id]}
+              </div>
+            )}
             {active && isOpen && (
               tablesBusy === conn.id
                 ? (
