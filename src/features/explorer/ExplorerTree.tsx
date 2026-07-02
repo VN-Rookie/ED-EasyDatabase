@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Database, Table2, Plug, PlugZap, Pencil, Trash2, ChevronRight, Loader2 } from "lucide-react";
 import { useConnectionStore } from "../connection/connectionStore";
 import { loadSavedConnections, connectConnection, disconnectConnection, deleteSavedConnection } from "../connection/connectionApi";
+import { ENGINE_META } from "../connection/engineMeta";
 import { listTables } from "./schemaApi";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { Spinner } from "../../shared/ui/Spinner";
@@ -116,6 +117,8 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
         const active = isActive(conn.id);
         const isOpen = open.has(conn.id);
         const busy = busyId === conn.id;
+        const meta = ENGINE_META[conn.db_type];
+        const EngineIcon = meta.icon;
         return (
           <div key={conn.id}>
             <div className="group w-full flex items-center gap-1.5 px-1 py-0.5">
@@ -128,8 +131,13 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
                   className={`text-muted transition-transform duration-[var(--dur-fast)] ${active && isOpen ? "rotate-90" : ""} ${!active ? "opacity-0" : ""}`}
                 />
                 <Database size={13} className={active ? "text-accent" : "text-muted"} />
-                <span className="truncate">{conn.name}</span>
-                <span className="text-[9px] uppercase text-faint tracking-wide">{conn.db_type}</span>
+                <span className="truncate min-w-0">{conn.name}</span>
+                <span
+                  title={meta.label}
+                  className={`shrink-0 flex items-center gap-1 px-1 py-0.5 rounded-[var(--radius-sm)] border ${meta.border} ${meta.bg}`}
+                >
+                  <EngineIcon size={9} className={meta.color} />
+                </span>
               </button>
               <div className="shrink-0 pr-1">
                 {busy ? (
