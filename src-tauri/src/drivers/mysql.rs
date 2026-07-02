@@ -22,9 +22,11 @@ impl Driver for MysqlDriver {
     }
 
     async fn list_schemas(&self) -> Result<Vec<SchemaInfo>, AppError> {
-        // MySQL: schemas = databases. Return current database.
+        // MySQL: schemas = databases. Return all databases, excluding system ones.
         let rows = sqlx::query_as::<_, (String,)>(
-            "SELECT SCHEMA_NAME() AS schema_name",
+            "SELECT schema_name FROM information_schema.schemata \
+             WHERE schema_name NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys') \
+             ORDER BY schema_name",
         )
         .fetch_all(&self.pool)
         .await?;
