@@ -11,9 +11,14 @@ use crate::{
 };
 
 fn config_path() -> Result<PathBuf, AppError> {
-    let dir = dirs::config_dir()
-        .ok_or_else(|| AppError::new("Cannot determine config directory"))?
-        .join("tool-sql");
+    // Allow test override via environment variable
+    let dir = if let Ok(custom_dir) = std::env::var("TOOLSQL_TEST_CONFIG_DIR") {
+        PathBuf::from(custom_dir)
+    } else {
+        dirs::config_dir()
+            .ok_or_else(|| AppError::new("Cannot determine config directory"))?
+            .join("tool-sql")
+    };
     fs::create_dir_all(&dir).map_err(|e| AppError::new(e.to_string()))?;
     Ok(dir.join("connections.json"))
 }
@@ -103,4 +108,91 @@ pub async fn list_connections(state: State<'_, AppState>) -> Result<Vec<Connecti
 
 pub fn new_id() -> String {
     Uuid::new_v4().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_config() -> ConnectionConfig {
+        ConnectionConfig {
+            id: "test-id-1".into(),
+            name: "Test Connection".into(),
+            db_type: "postgres".into(),
+            host: "localhost".into(),
+            port: 5432,
+            database: "testdb".into(),
+            username: "testuser".into(),
+            password: "testpass".into(),
+            connection_string: String::new(),
+        }
+    }
+
+    fn test_config2() -> ConnectionConfig {
+        ConnectionConfig {
+            id: "test-id-2".into(),
+            name: "Test Connection 2".into(),
+            db_type: "mysql".into(),
+            host: "localhost".into(),
+            port: 3306,
+            database: "testdb2".into(),
+            username: "testuser2".into(),
+            password: "testpass2".into(),
+            connection_string: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn save_load_delete() {
+        // Use a test-specific directory in the project
+        let test_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test-connections");
+        let test_path = test_dir.to_str().unwrap().to_string();
+
+        // Clean up before test
+        let _ = fs::remove_file(test_dir.join("connections.json"));
+
+        // Set the environment variable to use the test directory
+        std::env::set_var("TOOLSQL_TEST_CONFIG_DIR", &test_path);
+
+        // Save a connection
+        let config = test_config();
+        let saved = save_connection(config.clone()).await.expect("save should succeed");
+        assert_eq!(saved.id, "test-id-1");
+
+        // Load saved connections - should have the one we saved
+        let loaded = load_saved_connections().await.expect("load should succeed");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, "test-id-1");
+        assert_eq!(loaded[0].name, "Test Connection");
+
+        // Save another connection
+        let config2 = test_config2();
+        save_connection(config2.clone()).await.expect("save should succeed");
+
+        // Load again - should have two connections
+        let loaded = load_saved_connections().await.expect("load should succeed");
+        assert_eq!(loaded.len(), 2);
+
+        // Delete one connection
+        delete_saved_connection("test-id-1".into()).await.expect("delete should succeed");
+
+        // Load again - should have one connection left
+        let loaded = load_saved_connections().await.expect("load should succeed");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, "test-id-2");
+
+        // Delete the other connection
+        delete_saved_connection("test-id-2".into()).await.expect("delete should succeed");
+
+        // Load again - should be empty
+        let loaded = load_saved_connections().await.expect("load should succeed");
+        assert_eq!(loaded.len(), 0);
+
+        // Clean up
+        let _ = fs::remove_file(test_dir.join("connections.json"));
+        std::env::remove_var("TOOLSQL_TEST_CONFIG_DIR");
+    }
 }
