@@ -72,7 +72,7 @@ function DeleteConfirmModal({ pending, onConfirm, onCancel }: {
 
   const preview = Object.entries(pending.row).slice(0, 4);
   return (
-    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50" onClick={onCancel}>
+    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50">
       <div className="bg-[#161b22] border border-[#30363d] rounded-2xl w-[360px] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-start gap-3 px-5 pt-5 pb-4">
           <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0">
@@ -121,7 +121,7 @@ function CellExpandModal({ col, value, onClose }: { col: string; value: unknown;
     : typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
       <div className="bg-[#161b22] border border-[#30363d] rounded-2xl shadow-2xl w-[560px] max-w-[95vw] max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#30363d] shrink-0">
           <span className="text-xs font-mono text-[#e6edf3]">
