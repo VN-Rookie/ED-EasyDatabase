@@ -6,7 +6,8 @@ import { keymap } from "@codemirror/view";
 import { StreamLanguage } from "@codemirror/language";
 import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
-import { Play, Loader2, TableProperties, Maximize2, AlertCircle, ChevronDown, Sparkles, Bookmark } from "lucide-react";
+import { format } from "sql-formatter";
+import { Play, Loader2, TableProperties, Maximize2, AlertCircle, ChevronDown, Sparkles, Bookmark, Wand2 } from "lucide-react";
 import { runQuery } from "../object-view/objectApi";
 import { generateSql } from "./aiApi";
 import { listTables, describeTable } from "../explorer/schemaApi";
@@ -250,6 +251,22 @@ export function SqlConsoleShell() {
     }
   }, []);
 
+  const formatQuery = useCallback(() => {
+    if (!query.trim()) return;
+    // Only format for SQL databases, skip for MongoDB
+    if (isMongoConnection) return;
+    try {
+      const formatted = format(query, {
+        language: "postgresql",
+        keywordCase: "upper",
+        indentStyle: "standard",
+      });
+      loadSqlIntoEditor(formatted);
+    } catch {
+      // Silently fail for invalid SQL - formatting is best-effort
+    }
+  }, [query, isMongoConnection, loadSqlIntoEditor]);
+
   const generateQuery = useCallback(async () => {
     if (!aiPrompt.trim() || aiLoading) return;
     setAiLoading(true);
@@ -355,6 +372,18 @@ export function SqlConsoleShell() {
         >
           {running ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
           Run
+        </button>
+
+        {/* Format button */}
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={formatQuery}
+          disabled={noConn || !query.trim()}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-[var(--radius-sm)] border border-border text-xs font-medium text-muted hover:text-fg hover:border-accent hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          title="Format SQL"
+        >
+          <Wand2 size={11} />
+          Format
         </button>
 
         {/* Status */}
