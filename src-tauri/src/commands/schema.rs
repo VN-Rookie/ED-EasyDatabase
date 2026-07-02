@@ -1,9 +1,13 @@
 use tauri::State;
-use crate::{error::AppError, model::{ColumnInfo, IndexInfo, TableInfo}, state::AppState};
+use crate::{error::AppError, model::{ColumnInfo, IndexInfo, SchemaInfo, TableInfo}, state::AppState};
 
 #[tauri::command]
 pub async fn list_databases(conn_id: String, state: State<'_, AppState>) -> Result<Vec<String>, AppError> {
     state.driver(&conn_id)?.list_databases().await
+}
+#[tauri::command]
+pub async fn list_schemas(conn_id: String, state: State<'_, AppState>) -> Result<Vec<SchemaInfo>, AppError> {
+    state.driver(&conn_id)?.list_schemas().await
 }
 #[tauri::command]
 pub async fn list_tables(conn_id: String, state: State<'_, AppState>) -> Result<Vec<TableInfo>, AppError> {

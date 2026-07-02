@@ -4,7 +4,7 @@ use sqlx::{Column, Row};
 
 use crate::drivers::{is_select, Driver};
 use crate::error::AppError;
-use crate::model::{ColumnInfo, IndexInfo, QueryResult, TableInfo};
+use crate::model::{ColumnInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo};
 
 pub struct MysqlDriver {
     pub pool: sqlx::MySqlPool,
@@ -19,6 +19,18 @@ impl Driver for MysqlDriver {
 
     async fn list_databases(&self) -> Result<Vec<String>, AppError> {
         Ok(vec![])
+    }
+
+    async fn list_schemas(&self) -> Result<Vec<SchemaInfo>, AppError> {
+        // MySQL: schemas = databases. Return all databases, excluding system ones.
+        let rows = sqlx::query_as::<_, (String,)>(
+            "SELECT schema_name FROM information_schema.schemata \
+             WHERE schema_name NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys') \
+             ORDER BY schema_name",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(name,)| SchemaInfo { name }).collect())
     }
 
     async fn list_tables(&self) -> Result<Vec<TableInfo>, AppError> {

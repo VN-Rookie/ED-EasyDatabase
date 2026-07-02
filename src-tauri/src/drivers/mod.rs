@@ -7,12 +7,13 @@ use async_trait::async_trait;
 
 use crate::db;
 use crate::error::AppError;
-use crate::model::{ColumnInfo, ConnectionConfig, IndexInfo, QueryResult, TableInfo};
+use crate::model::{ColumnInfo, ConnectionConfig, IndexInfo, QueryResult, SchemaInfo, TableInfo};
 
 #[async_trait]
 pub trait Driver: Send + Sync {
     async fn ping(&self) -> Result<(), AppError>;
     async fn list_databases(&self) -> Result<Vec<String>, AppError>;
+    async fn list_schemas(&self) -> Result<Vec<SchemaInfo>, AppError>;
     async fn list_tables(&self) -> Result<Vec<TableInfo>, AppError>;
     async fn describe_table(&self, table: &str) -> Result<Vec<ColumnInfo>, AppError>;
     async fn list_indexes(&self, table: &str) -> Result<Vec<IndexInfo>, AppError>;
