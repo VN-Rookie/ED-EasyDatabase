@@ -49,6 +49,9 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
 
   const patch = (f: Partial<ConnectionConfig>) => setForm((p) => ({ ...p, ...f }));
   const isMongo = form.db_type === "mongodb";
+  const isValid = isMongo
+    ? form.name.trim() !== "" && form.connection_string.trim() !== ""
+    : form.name.trim() !== "" && form.host.trim() !== "" && form.database.trim() !== "" && form.username.trim() !== "";
 
   const handleEngine = (db_type: DbType) => {
     patch(db_type === "mongodb" ? { db_type } : { db_type, port: DEFAULT_PORTS[db_type] });
@@ -123,12 +126,16 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
           </div>
 
           {isMongo ? (
-            <div>
-              <label className={labelCls}>Connection String</label>
-              <Input value={form.connection_string} onChange={(e) => patch({ connection_string: e.target.value })} />
-              <p className="mt-1.5 text-[11px] text-muted">Supports replica sets, TLS, SRV, and auth options</p>
-              <label className={`${labelCls} mt-3`}>Database</label>
-              <Input value={form.database} onChange={(e) => patch({ database: e.target.value })} placeholder="test" />
+            <div className="space-y-3">
+              <div>
+                <label className={labelCls}>Connection String</label>
+                <Input value={form.connection_string} onChange={(e) => patch({ connection_string: e.target.value })} />
+                <p className="mt-1.5 text-[11px] text-muted">Supports replica sets, TLS, SRV, and auth options</p>
+              </div>
+              <div>
+                <label className={labelCls}>Database</label>
+                <Input value={form.database} onChange={(e) => patch({ database: e.target.value })} placeholder="test" />
+              </div>
             </div>
           ) : (
             <>
@@ -181,7 +188,7 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
           </Button>
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-            <Button variant="primary" size="sm" onClick={handleSubmit} disabled={saving}>
+            <Button variant="primary" size="sm" onClick={handleSubmit} disabled={saving || !isValid}>
               {saving ? <Loader2 size={12} className="animate-spin" /> : null}
               Save & Connect
             </Button>
