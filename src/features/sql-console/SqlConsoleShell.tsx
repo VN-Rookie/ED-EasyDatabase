@@ -1,19 +1,20 @@
 import { useState, useCallback, useRef, useEffect, type PointerEvent } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { sql } from "@codemirror/lang-sql";
+import { sql, PostgreSQL } from "@codemirror/lang-sql";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { keymap } from "@codemirror/view";
 import { StreamLanguage } from "@codemirror/language";
+import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
 import { Play, Loader2, TableProperties, Maximize2, AlertCircle, ChevronDown, Sparkles, Bookmark } from "lucide-react";
 import { runQuery } from "../object-view/objectApi";
 import { generateSql } from "./aiApi";
-import { listTables } from "../explorer/schemaApi";
+import { listTables, describeTable } from "../explorer/schemaApi";
 import { CellDetailModal } from "../../shared/ui/CellDetailModal";
 import { SavedQueriesPanel } from "../saved-queries/SavedQueriesPanel";
 import { useConnectionStore } from "../connection/connectionStore";
 import { useThemeStore } from "../../stores/themeStore";
-import type { QueryResult } from "../../shared/types";
+import type { QueryResult, TableInfo } from "../../shared/types";
 
 // MQL (MongoDB Query Language) syntax highlighting
 const mqlLanguage = StreamLanguage.define({
@@ -53,7 +54,29 @@ const mqlLanguage = StreamLanguage.define({
 
 const MAX_CELL_LEN = 80;
 
+// SQL Keywords for auto-completion
+const SQL_KEYWORDS = [
+  "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN",
+  "IS", "NULL", "TRUE", "FALSE", "ORDER", "BY", "ASC", "DESC", "LIMIT",
+  "OFFSET", "GROUP", "HAVING", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER",
+  "FULL", "CROSS", "ON", "AS", "DISTINCT", "COUNT", "SUM", "AVG", "MIN", "MAX",
+  "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "DROP",
+  "ALTER", "TABLE", "INDEX", "VIEW", "IF", "EXISTS", "PRIMARY", "KEY",
+  "FOREIGN", "REFERENCES", "UNIQUE", "DEFAULT", "CONSTRAINT", "CASCADE",
+  "UNION", "ALL", "INTERSECT", "EXCEPT", "CASE", "WHEN", "THEN", "ELSE",
+  "END", "COALESCE", "NULLIF", "CAST", "CONVERT", "WITH", "RECURSIVE",
+  "RETURNING", "DISTINCT", "OVER", "PARTITION", "ROW_NUMBER", "RANK",
+  "DENSE_RANK", "LAG", "LEAD", "FIRST_VALUE", "LAST_VALUE", "NTH_VALUE",
+];
+
 interface CellModal { column: string; value: string }
+
+// Schema cache for completions
+interface SchemaCache {
+  tables: TableInfo[];
+  tableColumns: Map<string, { name: string; type: string }[]>;
+  timestamp: number;
+}
 
 function ResultsTable({ result }: { result: QueryResult }) {
   const [modal, setModal] = useState<CellModal | null>(null);
@@ -128,6 +151,39 @@ export function SqlConsoleShell() {
     }
   }, [activeConnectionId, activeConnections]);
 
+  // Load schema for auto-completion when connection changes
+  useEffect(() => {
+    if (!connId || isMongoConnection) return;
+
+    const loadSchema = async () => {
+      try {
+        const tables = await listTables(connId);
+        const tableColumns = new Map<string, { name: string; type: string }[]>();
+
+        // Load columns for each table
+        for (const table of tables) {
+          try {
+            const columns = await describeTable(connId, table.name);
+            tableColumns.set(table.name, columns.map(c => ({ name: c.name, type: c.data_type })));
+          } catch {
+            // Table might not exist or be accessible
+            tableColumns.set(table.name, []);
+          }
+        }
+
+        setSchemaCache({
+          tables,
+          tableColumns,
+          timestamp: Date.now(),
+        });
+      } catch {
+        // Schema loading is best-effort for completions
+      }
+    };
+
+    loadSchema();
+  }, [connId, isMongoConnection]);
+
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState("");
@@ -141,6 +197,11 @@ export function SqlConsoleShell() {
   const [aiError, setAiError] = useState("");
   const [snippetsOpen, setSnippetsOpen] = useState(false);
   const [resultsHeight, setResultsHeight] = useState(208);
+  const [schemaCache, setSchemaCache] = useState<SchemaCache>({
+    tables: [],
+    tableColumns: new Map(),
+    timestamp: 0,
+  });
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
 
   const onDragStart = useCallback((e: PointerEvent<HTMLDivElement>) => {
@@ -213,9 +274,52 @@ export function SqlConsoleShell() {
     }
   }, [aiPrompt, aiLoading, connId, loadSqlIntoEditor]);
 
+  // Custom SQL completion source using schema
+  const sqlCompletionSource = useCallback((context: CompletionContext): CompletionResult | null => {
+    const word = context.matchBefore(/\w*/);
+    if (!word || (word.from === word.to && !context.explicit)) return null;
+
+    const completions: { label: string; type: string; detail?: string }[] = [];
+
+    // Add SQL keywords
+    for (const kw of SQL_KEYWORDS) {
+      if (kw.toLowerCase().startsWith(word.text.toLowerCase())) {
+        completions.push({ label: kw, type: "keyword" });
+      }
+    }
+
+    // Add tables from schema
+    for (const table of schemaCache.tables) {
+      if (table.name.toLowerCase().startsWith(word.text.toLowerCase())) {
+        completions.push({ label: table.name, type: "class", detail: "table" });
+      }
+    }
+
+    // Add columns with table prefix (e.g., "table.column")
+    for (const [tableName, columns] of schemaCache.tableColumns) {
+      for (const col of columns) {
+        const prefixed = `${tableName}.${col.name}`;
+        if (prefixed.toLowerCase().startsWith(word.text.toLowerCase())) {
+          completions.push({ label: prefixed, type: "property", detail: col.type });
+        }
+        // Also add unprefixed columns
+        if (col.name.toLowerCase().startsWith(word.text.toLowerCase())) {
+          completions.push({ label: col.name, type: "property", detail: `${tableName}.${col.type}` });
+        }
+      }
+    }
+
+    return {
+      from: word.from,
+      options: completions,
+      validFor: /^\w*$/,
+    };
+  }, [schemaCache]);
+
   // Choose language extension based on connection type
   const cmExtensions = [
-    isMongoConnection ? mqlLanguage : sql(),
+    isMongoConnection ? mqlLanguage : sql({ dialect: PostgreSQL, tables: schemaCache.tables.map(t => ({ label: t.name, columns: schemaCache.tableColumns.get(t.name)?.map(c => ({ label: c.name, type: c.type })) || [] })) }),
+    autocompletion({ override: isMongoConnection ? [] : [sqlCompletionSource] }),
     keymap.of([{ key: "Mod-Enter", run: () => { execute(); return true; } }]),
   ];
 
