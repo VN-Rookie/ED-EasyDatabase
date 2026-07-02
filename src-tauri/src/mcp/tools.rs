@@ -1,7 +1,6 @@
 use serde_json::{json, Value};
 
 use crate::state::AppState;
-use crate::error::AppError;
 use crate::model::ConnectionMeta;
 use super::audit;
 
@@ -81,11 +80,7 @@ pub async fn call_tool(name: &str, args: Value, state: &AppState) -> Result<Valu
 
 async fn tool_list_connections(state: &AppState) -> Result<String, String> {
     let conns = state.connections.lock().map_err(|e| e.to_string())?;
-    let list: Vec<ConnectionMeta> = conns.values().map(|e| ConnectionMeta {
-        id: e.id.clone(),
-        name: e.name.clone(),
-        db_type: e.db_type.clone(),
-    }).collect();
+    let list: Vec<ConnectionMeta> = conns.values().map(|e| e.meta.clone()).collect();
     Ok(serde_json::to_string_pretty(&list).unwrap_or_default())
 }
 
@@ -117,6 +112,16 @@ async fn tool_describe_table(args: Value, state: &AppState) -> Result<String, St
 async fn tool_run_query(args: Value, state: &AppState) -> Result<String, String> {
     let conn_id = args["conn_id"].as_str().ok_or("Missing conn_id")?;
     let sql     = args["sql"].as_str().ok_or("Missing sql")?;
+
+    // P3-B: enforce read-only at the tool boundary — reject writes unless the
+    // user has explicitly disabled mcp_read_only in settings.
+    let settings = crate::commands::settings::load_settings().await.map_err(|e| e.0.clone())?;
+    if settings.mcp_read_only && !crate::drivers::is_select(sql) {
+        return Err(
+            "Write queries are disabled in MCP read-only mode. \
+             Enable write access in Settings to run this query.".into(),
+        );
+    }
 
     let driver = state.driver(conn_id).map_err(|e| e.0.clone())?;
     let result = driver.run_query(sql).await.map_err(|e| e.0.clone())?;
