@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Database, Table2, Plug, PlugZap, Pencil, Trash2, ChevronRight, Loader2 } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { Database, Table2, Plug, PlugZap, Pencil, Trash2, ChevronRight, Loader2, Search } from "lucide-react";
 import { useConnectionStore } from "../connection/connectionStore";
 import { loadSavedConnections, connectConnection, disconnectConnection, deleteSavedConnection } from "../connection/connectionApi";
 import { ENGINE_META } from "../connection/engineMeta";
@@ -26,6 +26,13 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
   const [tables, setTables] = useState<Record<string, TableInfo[]>>({});
   const [tablesBusy, setTablesBusy] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+
+  const filteredConnections = useMemo(() => {
+    if (!filter.trim()) return savedConnections;
+    const q = filter.toLowerCase();
+    return savedConnections.filter((c) => c.name.toLowerCase().includes(q));
+  }, [savedConnections, filter]);
 
   useEffect(() => {
     loadSavedConnections()
@@ -107,13 +114,31 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
         <span className="text-[9px] font-bold tracking-[0.12em] text-muted uppercase">Explorer</span>
       </div>
 
+      {savedConnections.length > 0 && (
+        <div className="px-3 pb-2">
+          <div className="flex items-center gap-2 px-2 py-1.5 bg-elevated border border-border rounded-[var(--radius-sm)]">
+            <Search size={12} className="text-faint shrink-0" />
+            <input
+              type="text"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter connections..."
+              className="flex-1 bg-transparent text-xs text-fg placeholder:text-faint outline-none"
+            />
+          </div>
+        </div>
+      )}
+
       {loadError && <div className="px-3 py-2 text-[11px] text-danger">{loadError}</div>}
       {connectError && <div className="px-3 py-2 text-[11px] text-danger break-words">{connectError}</div>}
       {!loadError && savedConnections.length === 0 && (
         <div className="px-3 py-2 text-[11px] text-muted">No connections yet — use "New Connection".</div>
       )}
+      {!loadError && savedConnections.length > 0 && filteredConnections.length === 0 && (
+        <div className="px-3 py-2 text-[11px] text-muted">No matches</div>
+      )}
 
-      {savedConnections.map((conn) => {
+      {filteredConnections.map((conn) => {
         const active = isActive(conn.id);
         const isOpen = open.has(conn.id);
         const busy = busyId === conn.id;
