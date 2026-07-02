@@ -7,15 +7,17 @@ import { StreamLanguage } from "@codemirror/language";
 import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
 import { format } from "sql-formatter";
-import { Play, Loader2, TableProperties, Maximize2, AlertCircle, ChevronDown, Sparkles, Bookmark, Wand2 } from "lucide-react";
+import { Play, Loader2, TableProperties, Maximize2, AlertCircle, ChevronDown, Sparkles, Bookmark, Wand2, History } from "lucide-react";
 import { runQuery } from "../object-view/objectApi";
 import { generateSql } from "./aiApi";
 import { listTables, describeTable } from "../explorer/schemaApi";
 import { CellDetailModal } from "../../shared/ui/CellDetailModal";
 import { SavedQueriesPanel } from "../saved-queries/SavedQueriesPanel";
+import { QueryHistoryPanel } from "./QueryHistoryPanel";
 import { QueryTabsBar, type QueryTab } from "./QueryTabsBar";
 import { useConnectionStore } from "../connection/connectionStore";
 import { useThemeStore } from "../../stores/themeStore";
+import { useViewStore } from "../../stores/viewStore";
 import type { QueryResult, TableInfo } from "../../shared/types";
 
 // MQL (MongoDB Query Language) syntax highlighting
@@ -137,6 +139,7 @@ export function SqlConsoleShell() {
   const [connId, setConnId] = useState<string>("");
   const pref = useThemeStore((s) => s.pref);
   const isDark = pref === "dark" || (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const pushHistory = useViewStore((s) => s.pushHistory);
 
   // Get connection type for syntax highlighting
   const currentConnection = activeConnections.find((c) => c.id === connId);
@@ -198,6 +201,7 @@ export function SqlConsoleShell() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
   const [snippetsOpen, setSnippetsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [resultsHeight, setResultsHeight] = useState(208);
   const [schemaCache, setSchemaCache] = useState<SchemaCache>({
     tables: [],
@@ -287,13 +291,14 @@ export function SqlConsoleShell() {
     try {
       const r = await runQuery(connId, textToRun);
       setResult(r);
+      pushHistory(textToRun);
     } catch (e) {
       setError(String(e));
     } finally {
       setElapsed(Date.now() - startRef.current);
       setRunning(false);
     }
-  }, [connId, currentQuery, running]);
+  }, [connId, currentQuery, running, pushHistory]);
 
   const loadSqlIntoEditor = useCallback((sqlStr: string) => {
     updateTabQuery(sqlStr);
@@ -468,6 +473,14 @@ export function SqlConsoleShell() {
             <Bookmark size={11} />
             Snippets
           </button>
+          <button
+            onClick={() => setHistoryOpen((v) => !v)}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-sm)] text-xs transition-colors ${historyOpen ? "bg-accent/15 text-accent" : "text-muted hover:text-fg hover:bg-hover"}`}
+            title="Query history"
+          >
+            <History size={11} />
+            History
+          </button>
         </div>
         <span className="text-[10px] text-faint">⌘↵ to run</span>
       </div>
@@ -569,6 +582,13 @@ export function SqlConsoleShell() {
             onLoad={loadSqlIntoEditor}
             onRun={(sqlStr) => { loadSqlIntoEditor(sqlStr); execute(); }}
             onClose={() => setSnippetsOpen(false)}
+          />
+        )}
+        {historyOpen && (
+          <QueryHistoryPanel
+            onLoad={loadSqlIntoEditor}
+            onRun={(sqlStr) => { loadSqlIntoEditor(sqlStr); execute(); }}
+            onClose={() => setHistoryOpen(false)}
           />
         )}
       </div>

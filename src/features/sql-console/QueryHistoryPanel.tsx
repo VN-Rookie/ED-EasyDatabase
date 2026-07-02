@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { History, Trash2, Play, X, Search } from "lucide-react";
+import { History, Trash2, Play, X, Search, Copy } from "lucide-react";
 import { useViewStore } from "../../stores/viewStore";
 
 interface Props {
@@ -8,11 +8,21 @@ interface Props {
   onClose: () => void;
 }
 
-function HistoryRow({ sql, onLoad, onRun }: {
+function HistoryRow({ sql, index, onLoad, onRun, onDelete }: {
   sql: string;
+  index: number;
   onLoad: (sql: string) => void;
   onRun: (sql: string) => void;
+  onDelete: (index: number) => void;
 }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(sql);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   return (
     <div className="group px-3 py-2 hover:bg-hover transition-colors border-b border-border/50 last:border-0">
       <div className="flex items-center gap-1.5">
@@ -24,8 +34,14 @@ function HistoryRow({ sql, onLoad, onRun }: {
           {sql.slice(0, 50)}{sql.length > 50 ? "…" : ""}
         </button>
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          <button onClick={handleCopy} title="Copy" className="p-0.5 rounded text-muted hover:text-fg hover:bg-elevated transition-colors">
+            {copied ? <span className="text-[9px] text-accent">✓</span> : <Copy size={9} />}
+          </button>
           <button onClick={() => onRun(sql)} title="Run" className="p-0.5 rounded text-muted hover:text-accent hover:bg-elevated transition-colors">
             <Play size={9} />
+          </button>
+          <button onClick={() => onDelete(index)} title="Delete" className="p-0.5 rounded text-muted hover:text-danger hover:bg-elevated transition-colors">
+            <Trash2 size={9} />
           </button>
         </div>
       </div>
@@ -34,7 +50,7 @@ function HistoryRow({ sql, onLoad, onRun }: {
 }
 
 export function QueryHistoryPanel({ onLoad, onRun, onClose }: Props) {
-  const { queryHistory, pushHistory } = useViewStore();
+  const { queryHistory, deleteFromHistory } = useViewStore();
   const [search, setSearch] = useState("");
 
   const filtered = queryHistory.filter((sql) =>
@@ -42,10 +58,14 @@ export function QueryHistoryPanel({ onLoad, onRun, onClose }: Props) {
   );
 
   const handleClearHistory = () => {
-    queryHistory.forEach(() => pushHistory("")); // Clear by setting empty
-    // Actually reset to empty array
-    localStorage.setItem("tool-sql:query-history", "[]");
-    window.location.reload(); // Simple way to reset store
+    // Delete all items one by one (always delete from index 0 since array shrinks)
+    while (queryHistory.length > 0) {
+      deleteFromHistory(0);
+    }
+  };
+
+  const handleDelete = (index: number) => {
+    deleteFromHistory(index);
   };
 
   return (
@@ -100,12 +120,14 @@ export function QueryHistoryPanel({ onLoad, onRun, onClose }: Props) {
             </p>
           </div>
         ) : (
-          filtered.map((sql, index) => (
+          filtered.map((sql, idx) => (
             <HistoryRow
-              key={index}
+              key={idx}
               sql={sql}
+              index={idx}
               onLoad={onLoad}
               onRun={onRun}
+              onDelete={handleDelete}
             />
           ))
         )}
