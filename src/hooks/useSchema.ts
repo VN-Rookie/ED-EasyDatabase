@@ -1,8 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { TableInfo, ColumnInfo, QueryResult } from "../types";
+import type { TableInfo, ColumnInfo, QueryResult } from "../shared/types";
 import { useSchemaStore } from "../stores/schemaStore";
 import { useViewStore } from "../stores/viewStore";
 import { useConnectionStore } from "../stores/connectionStore";
+import { listSchemas, listIndexes, listForeignKeys } from "../features/explorer/schemaApi";
 
 export const PAGE_SIZE = 50;
 
@@ -20,6 +21,24 @@ export function useSchema() {
     } finally {
       schemaStore.setLoading(false);
     }
+  };
+
+  const loadSchemas = async (connId: string) => {
+    const schemaStore = useSchemaStore.getState();
+    schemaStore.setLoading(true);
+    try {
+      const schemas = await listSchemas(connId);
+      schemaStore.setSchemas(schemas);
+    } catch (e) {
+      console.error("Failed to list schemas:", e);
+      schemaStore.setSchemas([]);
+    } finally {
+      schemaStore.setLoading(false);
+    }
+  };
+
+  const selectSchema = async (schemaName: string) => {
+    useSchemaStore.getState().setSelectedSchema(schemaName);
   };
 
   const selectDatabase = async (dbName: string, connId: string) => {
@@ -160,10 +179,19 @@ export function useSchema() {
     const connId = useConnectionStore.getState().activeConnectionId;
     if (!connId) return;
     const schemaStore = useSchemaStore.getState();
+    // Check cache first
+    if (schemaStore.tableColumns[table]) {
+      const cached = schemaStore.tableColumns[table];
+      const columns: ColumnInfo[] = cached.map(name => ({ name, data_type: "unknown", nullable: true, is_pk: false }));
+      schemaStore.setColumns(columns);
+      return;
+    }
     schemaStore.setColumnsLoading(true);
     try {
       const columns = await invoke<ColumnInfo[]>("describe_table", { connId, table });
       schemaStore.setColumns(columns);
+      // Cache in tableColumns
+      schemaStore.setTableColumns({ ...schemaStore.tableColumns, [table]: columns.map(c => c.name) });
     } catch (e) {
       console.error("Failed to describe table:", e);
       schemaStore.setColumns([]);
@@ -172,5 +200,62 @@ export function useSchema() {
     }
   };
 
-  return { loadDatabases, selectDatabase, loadTables, loadTableData, selectTable, loadColumns };
+  const loadIndexes = async (table: string) => {
+    const connId = useConnectionStore.getState().activeConnectionId;
+    if (!connId) return;
+    const schemaStore = useSchemaStore.getState();
+    // Check cache first
+    if (schemaStore.tableIndexes[table]) {
+      schemaStore.setIndexes(schemaStore.tableIndexes[table]);
+      return;
+    }
+    schemaStore.setIndexesLoading(true);
+    try {
+      const indexes = await listIndexes(connId, table);
+      schemaStore.setIndexes(indexes);
+      // Cache in tableIndexes
+      schemaStore.setTableIndexes({ ...schemaStore.tableIndexes, [table]: indexes });
+    } catch (e) {
+      console.error("Failed to list indexes:", e);
+      schemaStore.setIndexes([]);
+    } finally {
+      schemaStore.setIndexesLoading(false);
+    }
+  };
+
+  const loadForeignKeys = async (table: string) => {
+    const connId = useConnectionStore.getState().activeConnectionId;
+    if (!connId) return;
+    const schemaStore = useSchemaStore.getState();
+    // Check cache first
+    if (schemaStore.tableForeignKeys[table]) {
+      schemaStore.setForeignKeys(schemaStore.tableForeignKeys[table]);
+      return;
+    }
+    schemaStore.setForeignKeysLoading(true);
+    try {
+      const foreignKeys = await listForeignKeys(connId, table);
+      schemaStore.setForeignKeys(foreignKeys);
+      // Cache in tableForeignKeys
+      schemaStore.setTableForeignKeys({ ...schemaStore.tableForeignKeys, [table]: foreignKeys });
+    } catch (e) {
+      console.error("Failed to list foreign keys:", e);
+      schemaStore.setForeignKeys([]);
+    } finally {
+      schemaStore.setForeignKeysLoading(false);
+    }
+  };
+
+  return {
+    loadDatabases,
+    loadSchemas,
+    selectSchema,
+    selectDatabase,
+    loadTables,
+    loadTableData,
+    selectTable,
+    loadColumns,
+    loadIndexes,
+    loadForeignKeys,
+  };
 }
