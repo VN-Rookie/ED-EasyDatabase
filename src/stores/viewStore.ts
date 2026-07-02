@@ -93,6 +93,7 @@ interface ViewStore {
   setQueryError:   (e: string | null) => void;
 
   pushHistory: (sql: string) => void;
+  deleteFromHistory: (index: number) => void;
   reset:       () => void;
 }
 
@@ -168,6 +169,12 @@ export const useViewStore = create<ViewStore>((set, get) => ({
   pushHistory: (sql) => set(s => {
     if (s.queryHistory[0] === sql) return {};
     const next = [sql, ...s.queryHistory].slice(0, MAX_HISTORY);
+    saveHistory(next);
+    return { queryHistory: next };
+  }),
+
+  deleteFromHistory: (index) => set(s => {
+    const next = s.queryHistory.filter((_, i) => i !== index);
     saveHistory(next);
     return { queryHistory: next };
   }),

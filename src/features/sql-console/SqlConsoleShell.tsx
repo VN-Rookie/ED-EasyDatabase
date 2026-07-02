@@ -1,22 +1,86 @@
 import { useState, useCallback, useRef, useEffect, type PointerEvent } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { sql } from "@codemirror/lang-sql";
+import { sql, PostgreSQL } from "@codemirror/lang-sql";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { keymap } from "@codemirror/view";
+import { StreamLanguage } from "@codemirror/language";
+import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
-import { Play, Loader2, TableProperties, Maximize2, AlertCircle, ChevronDown, Sparkles, Bookmark } from "lucide-react";
+import { format } from "sql-formatter";
+import { Play, Loader2, TableProperties, Maximize2, AlertCircle, ChevronDown, Sparkles, Bookmark, Wand2, History } from "lucide-react";
 import { runQuery } from "../object-view/objectApi";
 import { generateSql } from "./aiApi";
-import { listTables } from "../explorer/schemaApi";
+import { listTables, describeTable } from "../explorer/schemaApi";
 import { CellDetailModal } from "../../shared/ui/CellDetailModal";
 import { SavedQueriesPanel } from "../saved-queries/SavedQueriesPanel";
+import { QueryHistoryPanel } from "./QueryHistoryPanel";
+import { QueryTabsBar, type QueryTab } from "./QueryTabsBar";
 import { useConnectionStore } from "../connection/connectionStore";
 import { useThemeStore } from "../../stores/themeStore";
-import type { QueryResult } from "../../shared/types";
+import { useViewStore } from "../../stores/viewStore";
+import type { QueryResult, TableInfo } from "../../shared/types";
+
+// MQL (MongoDB Query Language) syntax highlighting
+const mqlLanguage = StreamLanguage.define({
+  token(stream) {
+    // Skip whitespace
+    if (stream.eatSpace()) return null;
+
+    // Strings (single and double quotes)
+    if (stream.match(/^["'][^"']*["']/)) return "string";
+    if (stream.match(/^""/)) return "string";
+
+    // Numbers
+    if (stream.match(/^-?\d+\.?\d*/)) return "number";
+
+    // Boolean and null
+    if (stream.match(/^true\b/)) return "keyword";
+    if (stream.match(/^false\b/)) return "keyword";
+    if (stream.match(/^null\b/)) return "keyword";
+
+    // Operators
+    if (stream.match(/^[{}[\]():,]/)) return "bracket";
+    if (stream.match(/^[<>]=?|==|!=|\+|\-|\*|\/|\$]/)) return "operator";
+
+    // MongoDB operators (starting with $)
+    if (stream.match(/^\$\w+/)) return "keyword";
+
+    // Identifiers (field names, collection names)
+    if (stream.match(/^[a-zA-Z_]\w*/)) {
+      return "variable";
+    }
+
+    // Move past any other character
+    stream.next();
+    return null;
+  },
+});
 
 const MAX_CELL_LEN = 80;
 
+// SQL Keywords for auto-completion
+const SQL_KEYWORDS = [
+  "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN",
+  "IS", "NULL", "TRUE", "FALSE", "ORDER", "BY", "ASC", "DESC", "LIMIT",
+  "OFFSET", "GROUP", "HAVING", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER",
+  "FULL", "CROSS", "ON", "AS", "DISTINCT", "COUNT", "SUM", "AVG", "MIN", "MAX",
+  "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "DROP",
+  "ALTER", "TABLE", "INDEX", "VIEW", "IF", "EXISTS", "PRIMARY", "KEY",
+  "FOREIGN", "REFERENCES", "UNIQUE", "DEFAULT", "CONSTRAINT", "CASCADE",
+  "UNION", "ALL", "INTERSECT", "EXCEPT", "CASE", "WHEN", "THEN", "ELSE",
+  "END", "COALESCE", "NULLIF", "CAST", "CONVERT", "WITH", "RECURSIVE",
+  "RETURNING", "DISTINCT", "OVER", "PARTITION", "ROW_NUMBER", "RANK",
+  "DENSE_RANK", "LAG", "LEAD", "FIRST_VALUE", "LAST_VALUE", "NTH_VALUE",
+];
+
 interface CellModal { column: string; value: string }
+
+// Schema cache for completions
+interface SchemaCache {
+  tables: TableInfo[];
+  tableColumns: Map<string, { name: string; type: string }[]>;
+  timestamp: number;
+}
 
 function ResultsTable({ result }: { result: QueryResult }) {
   const [modal, setModal] = useState<CellModal | null>(null);
@@ -75,11 +139,57 @@ export function SqlConsoleShell() {
   const [connId, setConnId] = useState<string>("");
   const pref = useThemeStore((s) => s.pref);
   const isDark = pref === "dark" || (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const pushHistory = useViewStore((s) => s.pushHistory);
+
+  // Get connection type for syntax highlighting
+  const currentConnection = activeConnections.find((c) => c.id === connId);
+  const isMongoConnection = currentConnection?.db_type === "mongodb";
 
   useEffect(() => {
-    setConnId((prev) => prev || activeConnectionId || activeConnections[0]?.id || "");
+    const newConnId = connId || activeConnectionId || activeConnections[0]?.id || "";
+    setConnId(newConnId);
+
+    // Set default query based on connection type when connection changes
+    const newConn = activeConnections.find((c) => c.id === newConnId);
+    if (newConn && !currentQuery) {
+      const defaultQuery = newConn.db_type === "mongodb" ? "db.collection.find({})" : "SELECT 1;";
+      updateTabQuery(defaultQuery);
+    }
   }, [activeConnectionId, activeConnections]);
-  const [query, setQuery] = useState("SELECT 1;");
+
+  // Load schema for auto-completion when connection changes
+  useEffect(() => {
+    if (!connId || isMongoConnection) return;
+
+    const loadSchema = async () => {
+      try {
+        const tables = await listTables(connId);
+        const tableColumns = new Map<string, { name: string; type: string }[]>();
+
+        // Load columns for each table
+        for (const table of tables) {
+          try {
+            const columns = await describeTable(connId, table.name);
+            tableColumns.set(table.name, columns.map(c => ({ name: c.name, type: c.data_type })));
+          } catch {
+            // Table might not exist or be accessible
+            tableColumns.set(table.name, []);
+          }
+        }
+
+        setSchemaCache({
+          tables,
+          tableColumns,
+          timestamp: Date.now(),
+        });
+      } catch {
+        // Schema loading is best-effort for completions
+      }
+    };
+
+    loadSchema();
+  }, [connId, isMongoConnection]);
+
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
@@ -91,7 +201,64 @@ export function SqlConsoleShell() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
   const [snippetsOpen, setSnippetsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [resultsHeight, setResultsHeight] = useState(208);
+  const [schemaCache, setSchemaCache] = useState<SchemaCache>({
+    tables: [],
+    tableColumns: new Map(),
+    timestamp: 0,
+  });
+
+  // Tabs state
+  const [tabs, setTabs] = useState<QueryTab[]>([
+    { id: "tab-1", title: "Query 1", query: "", isModified: false },
+  ]);
+  const [activeTabId, setActiveTabId] = useState("tab-1");
+  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+
+  // Sync query with active tab
+  const currentQuery = activeTab?.query ?? "";
+
+  const handleAddTab = useCallback(() => {
+    const newId = `tab-${Date.now()}`;
+    setTabs((prev) => [
+      ...prev,
+      { id: newId, title: `Query ${prev.length + 1}`, query: "", isModified: false },
+    ]);
+    setActiveTabId(newId);
+  }, []);
+
+  const handleCloseTab = useCallback((id: string) => {
+    setTabs((prev) => {
+      if (prev.length <= 1) return prev;
+      const newTabs = prev.filter((t) => t.id !== id);
+      if (activeTabId === id) {
+        const idx = prev.findIndex((t) => t.id === id);
+        const newActiveIdx = Math.min(idx, newTabs.length - 1);
+        setActiveTabId(newTabs[newActiveIdx].id);
+      }
+      return newTabs;
+    });
+  }, [activeTabId]);
+
+  const handleSelectTab = useCallback((id: string) => {
+    setActiveTabId(id);
+  }, []);
+
+  const handleRenameTab = useCallback((id: string, title: string) => {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, title } : t))
+    );
+  }, []);
+
+  const updateTabQuery = useCallback((newQuery: string) => {
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId ? { ...t, query: newQuery, isModified: true } : t
+      )
+    );
+  }, [activeTabId]);
+
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
 
   const onDragStart = useCallback((e: PointerEvent<HTMLDivElement>) => {
@@ -114,7 +281,7 @@ export function SqlConsoleShell() {
     const sel = view?.state.selection.main;
     const textToRun = (sel && sel.from !== sel.to)
       ? view!.state.sliceDoc(sel.from, sel.to)
-      : query;
+      : currentQuery;
     if (!textToRun.trim()) return;
     setRunning(true);
     setResult(null);
@@ -124,21 +291,38 @@ export function SqlConsoleShell() {
     try {
       const r = await runQuery(connId, textToRun);
       setResult(r);
+      pushHistory(textToRun);
     } catch (e) {
       setError(String(e));
     } finally {
       setElapsed(Date.now() - startRef.current);
       setRunning(false);
     }
-  }, [connId, query, running]);
+  }, [connId, currentQuery, running, pushHistory]);
 
   const loadSqlIntoEditor = useCallback((sqlStr: string) => {
-    setQuery(sqlStr);
+    updateTabQuery(sqlStr);
     if (viewRef.current) {
       const view = viewRef.current;
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: sqlStr } });
     }
-  }, []);
+  }, [updateTabQuery]);
+
+  const formatQuery = useCallback(() => {
+    if (!currentQuery.trim()) return;
+    // Only format for SQL databases, skip for MongoDB
+    if (isMongoConnection) return;
+    try {
+      const formatted = format(currentQuery, {
+        language: "postgresql",
+        keywordCase: "upper",
+        indentStyle: "standard",
+      });
+      loadSqlIntoEditor(formatted);
+    } catch {
+      // Silently fail for invalid SQL - formatting is best-effort
+    }
+  }, [currentQuery, isMongoConnection, loadSqlIntoEditor]);
 
   const generateQuery = useCallback(async () => {
     if (!aiPrompt.trim() || aiLoading) return;
@@ -164,8 +348,52 @@ export function SqlConsoleShell() {
     }
   }, [aiPrompt, aiLoading, connId, loadSqlIntoEditor]);
 
+  // Custom SQL completion source using schema
+  const sqlCompletionSource = useCallback((context: CompletionContext): CompletionResult | null => {
+    const word = context.matchBefore(/\w*/);
+    if (!word || (word.from === word.to && !context.explicit)) return null;
+
+    const completions: { label: string; type: string; detail?: string }[] = [];
+
+    // Add SQL keywords
+    for (const kw of SQL_KEYWORDS) {
+      if (kw.toLowerCase().startsWith(word.text.toLowerCase())) {
+        completions.push({ label: kw, type: "keyword" });
+      }
+    }
+
+    // Add tables from schema
+    for (const table of schemaCache.tables) {
+      if (table.name.toLowerCase().startsWith(word.text.toLowerCase())) {
+        completions.push({ label: table.name, type: "class", detail: "table" });
+      }
+    }
+
+    // Add columns with table prefix (e.g., "table.column")
+    for (const [tableName, columns] of schemaCache.tableColumns) {
+      for (const col of columns) {
+        const prefixed = `${tableName}.${col.name}`;
+        if (prefixed.toLowerCase().startsWith(word.text.toLowerCase())) {
+          completions.push({ label: prefixed, type: "property", detail: col.type });
+        }
+        // Also add unprefixed columns
+        if (col.name.toLowerCase().startsWith(word.text.toLowerCase())) {
+          completions.push({ label: col.name, type: "property", detail: `${tableName}.${col.type}` });
+        }
+      }
+    }
+
+    return {
+      from: word.from,
+      options: completions,
+      validFor: /^\w*$/,
+    };
+  }, [schemaCache]);
+
+  // Choose language extension based on connection type
   const cmExtensions = [
-    sql(),
+    isMongoConnection ? mqlLanguage : sql({ dialect: PostgreSQL, tables: schemaCache.tables.map(t => ({ label: t.name, columns: schemaCache.tableColumns.get(t.name)?.map(c => ({ label: c.name, type: c.type })) || [] })) }),
+    autocompletion({ override: isMongoConnection ? [] : [sqlCompletionSource] }),
     keymap.of([{ key: "Mod-Enter", run: () => { execute(); return true; } }]),
   ];
 
@@ -203,6 +431,18 @@ export function SqlConsoleShell() {
           Run
         </button>
 
+        {/* Format button */}
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={formatQuery}
+          disabled={noConn || !currentQuery.trim()}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-[var(--radius-sm)] border border-border text-xs font-medium text-muted hover:text-fg hover:border-accent hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          title="Format SQL"
+        >
+          <Wand2 size={11} />
+          Format
+        </button>
+
         {/* Status */}
         {elapsed !== null && !running && (
           <span className="text-[11px] text-muted ml-1">
@@ -232,6 +472,14 @@ export function SqlConsoleShell() {
           >
             <Bookmark size={11} />
             Snippets
+          </button>
+          <button
+            onClick={() => setHistoryOpen((v) => !v)}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-sm)] text-xs transition-colors ${historyOpen ? "bg-accent/15 text-accent" : "text-muted hover:text-fg hover:bg-hover"}`}
+            title="Query history"
+          >
+            <History size={11} />
+            History
           </button>
         </div>
         <span className="text-[10px] text-faint">⌘↵ to run</span>
@@ -264,14 +512,24 @@ export function SqlConsoleShell() {
         </div>
       )}
 
+      {/* Tabs bar */}
+      <QueryTabsBar
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onSelectTab={handleSelectTab}
+        onAddTab={handleAddTab}
+        onCloseTab={handleCloseTab}
+        onRenameTab={handleRenameTab}
+      />
+
       {/* Editor + Snippets side panel */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Editor */}
           <div className="flex-1 min-h-0 overflow-hidden">
             <CodeMirror
-              value={query}
-              onChange={setQuery}
+              value={currentQuery}
+              onChange={updateTabQuery}
               onCreateEditor={(view) => { viewRef.current = view; }}
               theme={isDark ? oneDark : "light"}
               extensions={cmExtensions}
@@ -320,10 +578,17 @@ export function SqlConsoleShell() {
         </div>
         {snippetsOpen && (
           <SavedQueriesPanel
-            currentSql={query}
+            currentSql={currentQuery}
             onLoad={loadSqlIntoEditor}
             onRun={(sqlStr) => { loadSqlIntoEditor(sqlStr); execute(); }}
             onClose={() => setSnippetsOpen(false)}
+          />
+        )}
+        {historyOpen && (
+          <QueryHistoryPanel
+            onLoad={loadSqlIntoEditor}
+            onRun={(sqlStr) => { loadSqlIntoEditor(sqlStr); execute(); }}
+            onClose={() => setHistoryOpen(false)}
           />
         )}
       </div>
