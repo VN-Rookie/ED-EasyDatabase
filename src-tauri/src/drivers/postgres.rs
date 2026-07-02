@@ -4,7 +4,7 @@ use sqlx::{Column, Row};
 
 use crate::drivers::{is_select, Driver};
 use crate::error::AppError;
-use crate::model::{ColumnInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo};
+use crate::model::{ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo};
 
 pub struct PostgresDriver {
     pub pool: sqlx::PgPool,
@@ -83,6 +83,32 @@ impl Driver for PostgresDriver {
         .await?;
         Ok(rows.into_iter().map(|(name, columns, is_unique, index_type)| IndexInfo {
             name, columns, is_unique, index_type,
+        }).collect())
+    }
+
+    async fn list_foreign_keys(&self, table: &str) -> Result<Vec<ForeignKeyInfo>, AppError> {
+        let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>, Option<String>)>(
+            "SELECT
+                con.conname,
+                array_to_string(array_agg(att.attname ORDER BY att.attnum), ','),
+                ccu.table_name,
+                array_to_string(array_agg(ccu.column_name ORDER BY ccu.ordinal_position), ','),
+                conf.updtype,
+                conf.deltype
+             FROM pg_constraint con
+             JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
+             JOIN information_schema.table_columns ccu ON ccu.table_name = rel.relname AND ccu.column_name = att.attname
+             JOIN (SELECT conrelid, confrelid, conname, conf.updtype, conf.deltype
+                   FROM pg_constraint conf) AS conf ON conf.conrelid = con.conrelid AND conf.conname = con.conname
+             JOIN pg_class rel ON rel.oid = con.conrelid
+             WHERE con.contype = 'f' AND rel.relname = $1
+             GROUP BY con.conname, ccu.table_name, conf.updtype, conf.deltype"
+        )
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(name, columns, referenced_table, referenced_columns, on_update, on_delete)| {
+            ForeignKeyInfo { name, columns, referenced_table, referenced_columns, on_update, on_delete }
         }).collect())
     }
 

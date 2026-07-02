@@ -4,7 +4,7 @@ use sqlx::{Column, Row};
 
 use crate::drivers::{is_select, Driver};
 use crate::error::AppError;
-use crate::model::{ColumnInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo};
+use crate::model::{ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo};
 
 pub struct MysqlDriver {
     pub pool: sqlx::MySqlPool,
@@ -74,6 +74,27 @@ impl Driver for MysqlDriver {
             index_type: if name == "PRIMARY" { "primary".to_string() } else { "btree".to_string() },
             name,
             columns,
+        }).collect())
+    }
+
+    async fn list_foreign_keys(&self, table: &str) -> Result<Vec<ForeignKeyInfo>, AppError> {
+        let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>, Option<String>)>(
+            "SELECT
+                CONSTRAINT_NAME,
+                GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR ','),
+                REFERENCED_TABLE_NAME,
+                GROUP_CONCAT(REFERENCED_COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR ','),
+                UPDATE_RULE,
+                DELETE_RULE
+             FROM information_schema.KEY_COLUMN_USAGE
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+             GROUP BY CONSTRAINT_NAME, REFERENCED_TABLE_NAME, UPDATE_RULE, DELETE_RULE",
+        )
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(name, columns, referenced_table, referenced_columns, on_update, on_delete)| {
+            ForeignKeyInfo { name, columns, referenced_table, referenced_columns, on_update, on_delete }
         }).collect())
     }
 
