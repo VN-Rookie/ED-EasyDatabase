@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import type { ConnectionConfig, DbType } from "../../shared/types";
 import { DEFAULT_PORTS } from "../../shared/types";
@@ -6,18 +6,14 @@ import { saveConnection, connectConnection, testConnection } from "./connectionA
 import { useConnectionStore } from "./connectionStore";
 import { Button } from "../../shared/ui/Button";
 import { Input } from "../../shared/ui/Input";
+import { ENGINE_META } from "./engineMeta";
 
 interface ConnectionDialogShellProps {
   onClose: () => void;
   initial?: ConnectionConfig;
 }
 
-interface EngineOption { id: DbType; label: string; }
-const ENGINES: EngineOption[] = [
-  { id: "postgres", label: "PostgreSQL" },
-  { id: "mysql", label: "MySQL" },
-  { id: "mongodb", label: "MongoDB" },
-];
+const ENGINE_IDS: DbType[] = ["postgres", "mysql", "mongodb"];
 
 type TestState = "idle" | "testing" | "ok" | "fail";
 
@@ -39,9 +35,23 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
   const [testError, setTestError] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { nameInputRef.current?.focus(); }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   const patch = (f: Partial<ConnectionConfig>) => setForm((p) => ({ ...p, ...f }));
   const isMongo = form.db_type === "mongodb";
+  const isValid = isMongo
+    ? form.name.trim() !== "" && form.connection_string.trim() !== ""
+    : form.name.trim() !== "" && form.host.trim() !== "" && form.database.trim() !== "" && form.username.trim() !== "";
 
   const handleEngine = (db_type: DbType) => {
     patch(db_type === "mongodb" ? { db_type } : { db_type, port: DEFAULT_PORTS[db_type] });
@@ -71,8 +81,11 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
   };
 
   return (
-    <div className="fixed inset-0 bg-[var(--overlay)] flex items-center justify-center z-50 p-4 anim-fade">
-      <div className="bg-surface border border-border rounded-[var(--radius-lg)] anim-pop w-[500px] shadow-lg overflow-auto max-h-[90vh]">
+    <div className="fixed inset-0 bg-[var(--overlay)] flex items-center justify-center z-50 p-4 anim-fade" onClick={onClose}>
+      <div
+        className="bg-surface border border-border rounded-[var(--radius-lg)] anim-pop w-[500px] shadow-lg overflow-auto max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="font-semibold text-[15px] text-fg">{initial ? "Edit Connection" : "New Connection"}</h2>
           <button type="button" onClick={onClose}
@@ -85,31 +98,44 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
           <div>
             <label className={labelCls}>Database Type</label>
             <div className="grid grid-cols-3 gap-2">
-              {ENGINES.map((e) => (
-                <button key={e.id} type="button" onClick={() => handleEngine(e.id)}
-                  className={`py-3 rounded-[var(--radius-md)] border-2 text-xs font-medium transition-all ${
-                    form.db_type === e.id
-                      ? "border-accent text-fg bg-accent/10"
-                      : "border-border text-muted hover:text-fg hover:bg-hover"
-                  }`}>
-                  {e.label}
-                </button>
-              ))}
+              {ENGINE_IDS.map((id) => {
+                const meta = ENGINE_META[id];
+                const Icon = meta.icon;
+                const selected = form.db_type === id;
+                return (
+                  <button key={id} type="button" onClick={() => handleEngine(id)}
+                    className={`flex flex-col items-center gap-2 py-3.5 rounded-[var(--radius-md)] border-2 transition-all ${
+                      selected
+                        ? `${meta.border} ${meta.bg}`
+                        : "border-border bg-transparent hover:border-accent/40 hover:bg-hover"
+                    }`}>
+                    <Icon size={20} className={selected ? meta.color : "text-muted"} />
+                    <div className="text-center leading-tight">
+                      <div className={`text-[11px] font-semibold ${selected ? "text-fg" : "text-muted"}`}>{meta.label}</div>
+                      <div className={`text-[9px] mt-0.5 ${selected ? "text-muted" : "text-muted/70"}`}>{meta.desc}</div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           <div>
             <label className={labelCls}>Name</label>
-            <Input value={form.name} onChange={(e) => patch({ name: e.target.value })} placeholder="My connection" />
+            <Input ref={nameInputRef} value={form.name} onChange={(e) => patch({ name: e.target.value })} placeholder="My connection" />
           </div>
 
           {isMongo ? (
-            <div>
-              <label className={labelCls}>Connection String</label>
-              <Input value={form.connection_string} onChange={(e) => patch({ connection_string: e.target.value })} />
-              <p className="mt-1.5 text-[11px] text-muted">Supports replica sets, TLS, SRV, and auth options</p>
-              <label className={`${labelCls} mt-3`}>Database</label>
-              <Input value={form.database} onChange={(e) => patch({ database: e.target.value })} placeholder="test" />
+            <div className="space-y-3">
+              <div>
+                <label className={labelCls}>Connection String</label>
+                <Input value={form.connection_string} onChange={(e) => patch({ connection_string: e.target.value })} />
+                <p className="mt-1.5 text-[11px] text-muted">Supports replica sets, TLS, SRV, and auth options</p>
+              </div>
+              <div>
+                <label className={labelCls}>Database</label>
+                <Input value={form.database} onChange={(e) => patch({ database: e.target.value })} placeholder="test" />
+              </div>
             </div>
           ) : (
             <>
@@ -162,7 +188,7 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
           </Button>
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-            <Button variant="primary" size="sm" onClick={handleSubmit} disabled={saving}>
+            <Button variant="primary" size="sm" onClick={handleSubmit} disabled={saving || !isValid}>
               {saving ? <Loader2 size={12} className="animate-spin" /> : null}
               Save & Connect
             </Button>

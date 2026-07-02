@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { Database, Table2, Plug, PlugZap, Pencil, Trash2, ChevronRight, Loader2 } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { Database, Table2, Plug, PlugZap, Pencil, Trash2, ChevronRight, Loader2, Search } from "lucide-react";
 import { useConnectionStore } from "../connection/connectionStore";
 import { loadSavedConnections, connectConnection, disconnectConnection, deleteSavedConnection } from "../connection/connectionApi";
+import { ENGINE_META } from "../connection/engineMeta";
 import { listTables } from "./schemaApi";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { Spinner } from "../../shared/ui/Spinner";
@@ -21,10 +22,17 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [connectError, setConnectError] = useState("");
   const [tables, setTables] = useState<Record<string, TableInfo[]>>({});
   const [tablesBusy, setTablesBusy] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [connectionErrors, setConnectionErrors] = useState<Record<string, string>>({});
+
+  const filteredConnections = useMemo(() => {
+    if (!filter.trim()) return savedConnections;
+    const q = filter.toLowerCase();
+    return savedConnections.filter((c) => c.name.toLowerCase().includes(q));
+  }, [savedConnections, filter]);
 
   useEffect(() => {
     loadSavedConnections()
@@ -43,7 +51,8 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
   const handleConnect = async (id: string) => {
     const config = savedConnections.find((c) => c.id === id);
     if (!config) return;
-    setBusyId(id); setConnectError("");
+    setBusyId(id);
+    setConnectionErrors((prev) => { const n = { ...prev }; delete n[id]; return n; });
     try {
       const meta = await connectConnection(config);
       addActiveConnection(meta);
@@ -52,7 +61,7 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
       setOpen((prev) => new Set(prev).add(id));
       await loadTablesForConn(id);
     } catch (e) {
-      setConnectError(String(e));
+      setConnectionErrors((prev) => ({ ...prev, [id]: String(e) }));
     } finally {
       setBusyId(null);
     }
@@ -65,7 +74,7 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
       const list = await listTables(id);
       setTables((prev) => ({ ...prev, [id]: list }));
     } catch (e) {
-      setConnectError(String(e));
+      setConnectionErrors((prev) => ({ ...prev, [id]: String(e) }));
     } finally {
       setTablesBusy(null);
     }
@@ -79,11 +88,12 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
 
   const handleDisconnect = async (id: string) => {
     setBusyId(id);
+    setConnectionErrors((prev) => { const n = { ...prev }; delete n[id]; return n; });
     try {
       await disconnectConnection(id);
       removeActiveConnection(id);
     } catch (e) {
-      setConnectError(String(e));
+      setConnectionErrors((prev) => ({ ...prev, [id]: String(e) }));
     } finally {
       setBusyId(null);
     }
@@ -91,12 +101,13 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
 
   const handleDelete = async (id: string) => {
     setPendingDelete(null);
+    setConnectionErrors((prev) => { const n = { ...prev }; delete n[id]; return n; });
     try {
       if (isActive(id)) { await disconnectConnection(id); removeActiveConnection(id); }
       await deleteSavedConnection(id);
       removeSavedConnection(id);
     } catch (e) {
-      setConnectError(String(e));
+      setConnectionErrors((prev) => ({ ...prev, [id]: String(e) }));
     }
   };
 
@@ -106,16 +117,35 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
         <span className="text-[9px] font-bold tracking-[0.12em] text-muted uppercase">Explorer</span>
       </div>
 
+      {savedConnections.length > 0 && (
+        <div className="px-3 pb-2">
+          <div className="flex items-center gap-2 px-2 py-1.5 bg-elevated border border-border rounded-[var(--radius-sm)]">
+            <Search size={12} className="text-faint shrink-0" />
+            <input
+              type="text"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter connections..."
+              className="flex-1 bg-transparent text-xs text-fg placeholder:text-faint outline-none"
+            />
+          </div>
+        </div>
+      )}
+
       {loadError && <div className="px-3 py-2 text-[11px] text-danger">{loadError}</div>}
-      {connectError && <div className="px-3 py-2 text-[11px] text-danger break-words">{connectError}</div>}
       {!loadError && savedConnections.length === 0 && (
         <div className="px-3 py-2 text-[11px] text-muted">No connections yet — use "New Connection".</div>
       )}
+      {!loadError && savedConnections.length > 0 && filteredConnections.length === 0 && (
+        <div className="px-3 py-2 text-[11px] text-muted">No matches</div>
+      )}
 
-      {savedConnections.map((conn) => {
+      {filteredConnections.map((conn) => {
         const active = isActive(conn.id);
         const isOpen = open.has(conn.id);
         const busy = busyId === conn.id;
+        const meta = ENGINE_META[conn.db_type];
+        const EngineIcon = meta.icon;
         return (
           <div key={conn.id}>
             <div className="group w-full flex items-center gap-1.5 px-1 py-0.5">
@@ -128,8 +158,13 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
                   className={`text-muted transition-transform duration-[var(--dur-fast)] ${active && isOpen ? "rotate-90" : ""} ${!active ? "opacity-0" : ""}`}
                 />
                 <Database size={13} className={active ? "text-accent" : "text-muted"} />
-                <span className="truncate">{conn.name}</span>
-                <span className="text-[9px] uppercase text-faint tracking-wide">{conn.db_type}</span>
+                <span className="truncate min-w-0">{conn.name}</span>
+                <span
+                  title={meta.label}
+                  className={`shrink-0 flex items-center gap-1 px-1 py-0.5 rounded-[var(--radius-sm)] border ${meta.border} ${meta.bg}`}
+                >
+                  <EngineIcon size={9} className={meta.color} />
+                </span>
               </button>
               <div className="shrink-0 pr-1">
                 {busy ? (
@@ -150,6 +185,11 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
                 )}
               </div>
             </div>
+            {connectionErrors[conn.id] && (
+              <div className="pl-9 pr-2 py-1 text-[10px] text-danger break-words">
+                {connectionErrors[conn.id]}
+              </div>
+            )}
             {active && isOpen && (
               tablesBusy === conn.id
                 ? (

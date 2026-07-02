@@ -30,7 +30,9 @@ export function Toolbar({ onNewConnection, onOpenSettings, onOpenPalette }: Tool
 
       <div className="ml-auto flex items-center gap-1">
         <IconButton icon={ThemeIcon} label={`Theme: ${pref}`} onClick={() => setPref(next)} />
-        <IconButton icon={Plus} label="New Connection" onClick={onNewConnection} />
+        <Button variant="subtle" size="sm" icon={Plus} onClick={onNewConnection}>
+          New Connection
+        </Button>
         <IconButton icon={Settings} label="Settings (⌘,)" onClick={onOpenSettings} />
       </div>
     </header>
