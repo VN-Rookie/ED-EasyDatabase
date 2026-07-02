@@ -376,6 +376,10 @@ export function DataGrid({
   // B5: column visibility
   const [hiddenCols, setHiddenCols]   = useState<Set<string>>(new Set());
   const [showColPicker, setShowColPicker] = useState(false);
+  // B7: column reordering
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
+  const [draggingCol, setDraggingCol] = useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   // B6: context menu
   const [contextMenu, setContextMenu] = useState<CtxMenu | null>(null);
   // Delete confirm
@@ -386,6 +390,12 @@ export function DataGrid({
   const committingRef = useRef(false);
 
   useEffect(() => { setSelectedRows(new Set()); setLastSelectedIdx(null); }, [result]);
+  // Initialize column order when result changes
+  useEffect(() => {
+    if (result && result.columns.length > 0) {
+      setColumnOrder(result.columns);
+    }
+  }, [result?.columns]);
   // Clear pending edits when result refreshes (page change, reload)
   useEffect(() => {
     if (pendingEdits.length > 0) {
@@ -408,6 +418,53 @@ export function DataGrid({
     const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
     window.addEventListener("mousemove", onMove); window.addEventListener("mouseup", onUp);
   }, [colWidths]);
+
+  // Column drag-and-drop reordering
+  const handleColDragStart = useCallback((col: string, e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", col);
+    setDraggingCol(col);
+  }, []);
+
+  const handleColDragOver = useCallback((col: string, e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (col !== draggingCol) {
+      setDragOverCol(col);
+    }
+  }, [draggingCol]);
+
+  const handleColDragLeave = useCallback(() => {
+    setDragOverCol(null);
+  }, []);
+
+  const handleColDrop = useCallback((targetCol: string, e: React.DragEvent) => {
+    e.preventDefault();
+    const draggedCol = e.dataTransfer.getData("text/plain") || draggingCol;
+    if (!draggedCol || draggedCol === targetCol || !columnOrder.length) {
+      setDraggingCol(null);
+      setDragOverCol(null);
+      return;
+    }
+    const newOrder = [...columnOrder];
+    const dragIdx = newOrder.indexOf(draggedCol);
+    const targetIdx = newOrder.indexOf(targetCol);
+    if (dragIdx === -1 || targetIdx === -1) {
+      setDraggingCol(null);
+      setDragOverCol(null);
+      return;
+    }
+    newOrder.splice(dragIdx, 1);
+    newOrder.splice(targetIdx, 0, draggedCol);
+    setColumnOrder(newOrder);
+    setDraggingCol(null);
+    setDragOverCol(null);
+  }, [draggingCol, columnOrder]);
+
+  const handleColDragEnd = useCallback(() => {
+    setDraggingCol(null);
+    setDragOverCol(null);
+  }, []);
 
   // P2: Stage edit instead of committing immediately
   const stageEdit = useCallback(() => {
@@ -538,7 +595,9 @@ export function DataGrid({
     </div>
   );
 
-  const visibleCols  = result.columns.filter(c => !hiddenCols.has(c));
+  const visibleCols = columnOrder.length > 0
+    ? columnOrder.filter(c => !hiddenCols.has(c))
+    : result.columns.filter(c => !hiddenCols.has(c));
   const allSelected  = selectedRows.size === result.rows.length;
   const someSelected = selectedRows.size > 0 && !allSelected;
   const totalPending = pendingEdits.length;
@@ -607,12 +666,24 @@ export function DataGrid({
               <th className="px-3 py-2.5 text-[10px] text-[#7d8590] font-semibold uppercase tracking-wider w-10">#</th>
               {visibleCols.map(col => {
                 const isActive = sortCol === col;
+                const isDragging = draggingCol === col;
+                const isDragOver = dragOverCol === col;
                 return (
                   <th key={col} onClick={() => onSort?.(col)} style={{ width: colWidths[col], minWidth: 60 }}
                     className={`relative px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap ${
                       onSort ? "cursor-pointer hover:bg-[#292e36]" : ""
-                    } ${isActive ? "text-blue-400" : "text-[#7d8590]"}`}>
-                    <span className="flex items-center gap-1">
+                    } ${isActive ? "text-blue-400" : "text-[#7d8590]"} ${
+                      isDragging ? "opacity-50" : isDragOver ? "bg-blue-500/20" : ""
+                    }`}
+                    draggable
+                    onDragStart={e => handleColDragStart(col, e)}
+                    onDragOver={e => handleColDragOver(col, e)}
+                    onDragLeave={handleColDragLeave}
+                    onDrop={e => handleColDrop(col, e)}
+                    onDragEnd={handleColDragEnd}
+                  >
+                    <span className="flex items-center gap-1 select-none">
+                      <span className="cursor-grab active:cursor-grabbing">⋮⋮</span>
                       {col}{isActive && (sortDir === "asc" ? <ArrowUp size={10} /> : <ArrowDown size={10} />)}
                     </span>
                     <div onMouseDown={e => startColResize(col, e)} onClick={e => e.stopPropagation()}
