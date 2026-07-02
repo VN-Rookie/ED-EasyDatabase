@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 use crate::drivers::Driver;
 use crate::error::AppError;
-use crate::model::{ColumnInfo, IndexInfo, QueryResult, TableInfo};
+use crate::model::{ColumnInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo};
 
 pub struct MongoDriver {
     client: mongodb::Client,
@@ -92,6 +92,11 @@ impl Driver for MongoDriver {
         names.retain(|n| !system.contains(&n.as_str()));
         names.sort();
         Ok(names)
+    }
+
+    async fn list_schemas(&self) -> Result<Vec<SchemaInfo>, AppError> {
+        // MongoDB: schemas don't exist. Return current database as the single "schema".
+        Ok(vec![SchemaInfo { name: self.current_db() }])
     }
 
     async fn list_tables(&self) -> Result<Vec<TableInfo>, AppError> {

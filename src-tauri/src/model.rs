@@ -14,6 +14,11 @@ pub struct TableInfo {
 }
 
 #[derive(Serialize)]
+pub struct SchemaInfo {
+    pub name: String,
+}
+
+#[derive(Serialize)]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,
