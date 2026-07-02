@@ -81,7 +81,7 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
   };
 
   return (
-    <div className="fixed inset-0 bg-[var(--overlay)] flex items-center justify-center z-50 p-4 anim-fade" onClick={onClose}>
+    <div className="fixed inset-0 bg-[var(--overlay)] flex items-center justify-center z-50 p-4 anim-fade">
       <div
         className="bg-surface border border-border rounded-[var(--radius-lg)] anim-pop w-[500px] shadow-lg overflow-auto max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}

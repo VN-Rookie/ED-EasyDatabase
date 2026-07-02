@@ -84,7 +84,7 @@ function DocDeleteModal({ doc, index, onConfirm, onCancel }: {
   }, [onCancel, onConfirm]);
 
   return (
-    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50" onClick={onCancel}>
+    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50">
       <div className="bg-[#161b22] border border-[#30363d] rounded-2xl w-[340px] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-start gap-3 px-5 pt-5 pb-4">
           <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0">
@@ -143,7 +143,7 @@ function EditDocumentModal({ doc, onSave, onCancel }: {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50" onClick={onCancel}>
+    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50">
       <div className="bg-[#161b22] border border-[#30363d] rounded-2xl w-[580px] max-w-[95vw] max-h-[85vh] flex flex-col shadow-2xl"
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#30363d] shrink-0">

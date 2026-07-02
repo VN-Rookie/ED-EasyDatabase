@@ -27,7 +27,6 @@ export function CellDetailModal({ column, value, onClose }: CellDetailModalProps
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] backdrop-blur-sm anim-fade"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-lg anim-pop w-[560px] max-w-[90vw] max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">

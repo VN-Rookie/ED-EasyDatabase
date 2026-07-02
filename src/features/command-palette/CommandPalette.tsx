@@ -86,7 +86,7 @@ export function CommandPalette({ onNewConnection, onOpenSettings }: CommandPalet
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-50 bg-[var(--overlay)] anim-fade" onClick={close} />
+      <div className="fixed inset-0 z-50 bg-[var(--overlay)] anim-fade" />
       {/* Panel */}
       <div className="fixed inset-0 z-50 flex items-start justify-center pointer-events-none">
         <div className="pointer-events-auto w-full max-w-lg mt-[12vh] mx-4 bg-elevated border border-border rounded-[var(--radius-lg)] shadow-lg anim-pop overflow-hidden">
