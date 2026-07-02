@@ -7,7 +7,7 @@ use async_trait::async_trait;
 
 use crate::db;
 use crate::error::AppError;
-use crate::model::{ColumnInfo, ConnectionConfig, IndexInfo, QueryResult, SchemaInfo, TableInfo};
+use crate::model::{ColumnInfo, ConnectionConfig, ForeignKeyInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo};
 
 #[async_trait]
 pub trait Driver: Send + Sync {
@@ -17,6 +17,10 @@ pub trait Driver: Send + Sync {
     async fn list_tables(&self) -> Result<Vec<TableInfo>, AppError>;
     async fn describe_table(&self, table: &str) -> Result<Vec<ColumnInfo>, AppError>;
     async fn list_indexes(&self, table: &str) -> Result<Vec<IndexInfo>, AppError>;
+    async fn list_foreign_keys(&self, _table: &str) -> Result<Vec<ForeignKeyInfo>, AppError> {
+        // Default: not supported (MongoDB)
+        Err(AppError::new("list_foreign_keys is not supported for this engine"))
+    }
     async fn run_query(&self, sql: &str) -> Result<QueryResult, AppError>;
     /// MongoDB only: switch the browsed database. Default: unsupported.
     async fn set_database(&self, _db: &str) -> Result<(), AppError> {

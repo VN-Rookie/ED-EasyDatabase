@@ -29,6 +29,7 @@ pub fn run() {
             commands::schema::list_tables,
             commands::schema::describe_table,
             commands::schema::list_indexes,
+            commands::schema::list_foreign_keys,
             commands::query::run_query,
             commands::settings::load_settings,
             commands::settings::save_settings,
