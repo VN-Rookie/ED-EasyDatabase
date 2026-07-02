@@ -25,6 +25,7 @@ pub fn run() {
             commands::connection::list_connections,
             commands::connection::switch_mongo_db,
             commands::schema::list_databases,
+            commands::schema::list_schemas,
             commands::schema::list_tables,
             commands::schema::describe_table,
             commands::schema::list_indexes,
