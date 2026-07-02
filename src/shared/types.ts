@@ -26,6 +26,10 @@ export const DEFAULT_PORTS: Record<DbType, number> = {
   mongodb: 27017,
 };
 
+export interface SchemaInfo {
+  name: string;
+}
+
 export interface TableInfo {
   name: string;
 }
@@ -42,6 +46,15 @@ export interface IndexInfo {
   columns: string;
   is_unique: boolean;
   index_type: string;
+}
+
+export interface ForeignKeyInfo {
+  name: string;
+  columns: string;
+  referenced_table: string;
+  referenced_columns: string;
+  on_update: string | null;
+  on_delete: string | null;
 }
 
 export interface QueryResult {
