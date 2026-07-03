@@ -11,13 +11,16 @@ export function useSchema() {
   const loadDatabases = async (connId: string) => {
     const schemaStore = useSchemaStore.getState();
     schemaStore.setLoading(true);
+    schemaStore.setError(null);
     try {
       const dbs = await invoke<string[]>("list_databases", { connId });
       schemaStore.setDatabases(dbs);
       schemaStore.setSelectedDatabase(null);
     } catch (e) {
+      const errorMsg = String(e);
       console.error("Failed to list databases:", e);
       schemaStore.setDatabases([]);
+      schemaStore.setError(errorMsg);
     } finally {
       schemaStore.setLoading(false);
     }
@@ -26,12 +29,15 @@ export function useSchema() {
   const loadSchemas = async (connId: string) => {
     const schemaStore = useSchemaStore.getState();
     schemaStore.setLoading(true);
+    schemaStore.setError(null);
     try {
       const schemas = await listSchemas(connId);
       schemaStore.setSchemas(schemas);
     } catch (e) {
+      const errorMsg = String(e);
       console.error("Failed to list schemas:", e);
       schemaStore.setSchemas([]);
+      schemaStore.setError(errorMsg);
     } finally {
       schemaStore.setLoading(false);
     }
@@ -50,6 +56,7 @@ export function useSchema() {
   const loadTables = async (connId: string) => {
     const schemaStore = useSchemaStore.getState();
     schemaStore.setLoading(true);
+    schemaStore.setError(null);
     try {
       const tables = await invoke<TableInfo[]>("list_tables", { connId });
       schemaStore.setTables(tables);
@@ -61,8 +68,10 @@ export function useSchema() {
         loadTableCountsBackground(connId, names);
       }
     } catch (e) {
+      const errorMsg = String(e);
       console.error("Failed to list tables:", e);
       schemaStore.setTables([]);
+      schemaStore.setError(errorMsg);
     } finally {
       schemaStore.setLoading(false);
     }
@@ -187,14 +196,17 @@ export function useSchema() {
       return;
     }
     schemaStore.setColumnsLoading(true);
+    schemaStore.setError(null);
     try {
       const columns = await invoke<ColumnInfo[]>("describe_table", { connId, table });
       schemaStore.setColumns(columns);
       // Cache in tableColumns
       schemaStore.setTableColumns({ ...schemaStore.tableColumns, [table]: columns.map(c => c.name) });
     } catch (e) {
+      const errorMsg = String(e);
       console.error("Failed to describe table:", e);
       schemaStore.setColumns([]);
+      schemaStore.setError(errorMsg);
     } finally {
       schemaStore.setColumnsLoading(false);
     }
@@ -210,14 +222,17 @@ export function useSchema() {
       return;
     }
     schemaStore.setIndexesLoading(true);
+    schemaStore.setError(null);
     try {
       const indexes = await listIndexes(connId, table);
       schemaStore.setIndexes(indexes);
       // Cache in tableIndexes
       schemaStore.setTableIndexes({ ...schemaStore.tableIndexes, [table]: indexes });
     } catch (e) {
+      const errorMsg = String(e);
       console.error("Failed to list indexes:", e);
       schemaStore.setIndexes([]);
+      schemaStore.setError(errorMsg);
     } finally {
       schemaStore.setIndexesLoading(false);
     }
@@ -233,14 +248,17 @@ export function useSchema() {
       return;
     }
     schemaStore.setForeignKeysLoading(true);
+    schemaStore.setError(null);
     try {
       const foreignKeys = await listForeignKeys(connId, table);
       schemaStore.setForeignKeys(foreignKeys);
       // Cache in tableForeignKeys
       schemaStore.setTableForeignKeys({ ...schemaStore.tableForeignKeys, [table]: foreignKeys });
     } catch (e) {
+      const errorMsg = String(e);
       console.error("Failed to list foreign keys:", e);
       schemaStore.setForeignKeys([]);
+      schemaStore.setError(errorMsg);
     } finally {
       schemaStore.setForeignKeysLoading(false);
     }
