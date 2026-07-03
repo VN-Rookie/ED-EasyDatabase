@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Maximize2 } from "lucide-react";
 import { Input } from "../../shared/ui/Input";
+import { Textarea } from "../../shared/ui/Textarea";
 import { Select } from "../../shared/ui/Select";
 import { CellExpandModal } from "../../shared/ui/CellExpandModal";
 import { useDataGridStore, type DirtyCell } from "./dataGridStore";
@@ -132,6 +133,20 @@ export function DataGridCell({
               </option>
             ))}
           </Select>
+        ) : editValue.length > 50 || editValue.includes("\n") ? (
+          <Textarea
+            value={editValue}
+            onChange={(e) => {
+              setEditValue(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={handleKeyDown}
+            onBlur={handleBlur}
+            autoFocus
+            rows={Math.min(Math.ceil(editValue.length / 40) + 1, 10)}
+            className={error ? "border-danger focus:border-danger" : ""}
+            placeholder={dataType.includes("int") || dataType.includes("float") ? "0" : "Enter value..."}
+          />
         ) : (
           <Input
             value={editValue}
