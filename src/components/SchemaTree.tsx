@@ -52,7 +52,6 @@ export function SchemaTree() {
   } = useSchema();
 
   const [search, setSearch] = useState("");
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [expandedTableDetails, setExpandedTableDetails] = useState<Set<string>>(new Set());
 
   const activeMeta = activeConnections.find((c) => c.id === activeConnectionId);
@@ -99,7 +98,6 @@ export function SchemaTree() {
     useSchemaStore.getState().setSchemas([]);
     useSchemaStore.getState().setSelectedSchema(null);
     setSearch("");
-    setExpandedItems(new Set());
     setExpandedTableDetails(new Set());
   };
 
@@ -107,17 +105,7 @@ export function SchemaTree() {
     useSchemaStore.getState().setSelectedSchema(null);
     useSchemaStore.getState().setTables([]);
     setSearch("");
-    setExpandedItems(new Set());
     setExpandedTableDetails(new Set());
-  };
-
-  const toggleExpand = (key: string) => {
-    setExpandedItems((prev) => {
-      const n = new Set(prev);
-      if (n.has(key)) n.delete(key);
-      else n.add(key);
-      return n;
-    });
   };
 
   const toggleTableDetails = async (tableKey: string) => {
@@ -285,37 +273,21 @@ export function SchemaTree() {
           </div>
         ) : (
           <ul className="pl-1 pb-1 space-y-0.5">
-            {filteredDbs.map((dbName) => {
-              const key = `db:${dbName}`;
-              const isExpanded = expandedItems.has(key);
-              return (
-                <li key={dbName}>
-                  <div className="flex items-center">
-                    <button
-                      onClick={() => toggleExpand(key)}
-                      className="p-0.5 text-[#484f58] hover:text-[#7d8590] shrink-0"
-                    >
-                      {isExpanded ? (
-                        <ChevronDown size={10} />
-                      ) : (
-                        <ChevronRight size={10} />
-                      )}
-                    </button>
-                    <button
-                      onClick={() =>
-                        activeConnectionId && selectDatabase(dbName, activeConnectionId)
-                      }
-                      className="flex items-center gap-1.5 px-1 py-1.5 rounded-lg text-left transition-all text-[#7d8590] hover:bg-[#292e36] hover:text-[#e6edf3] flex-1"
-                    >
-                      <Database size={10} className="shrink-0 opacity-60" />
-                      <span className="text-[11px] truncate font-mono">
-                        {dbName}
-                      </span>
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
+            {filteredDbs.map((dbName) => (
+              <li key={dbName}>
+                <button
+                  onClick={() =>
+                    activeConnectionId && selectDatabase(dbName, activeConnectionId)
+                  }
+                  className="flex items-center gap-1.5 px-1 py-1.5 rounded-lg text-left transition-all text-[#7d8590] hover:bg-[#292e36] hover:text-[#e6edf3] w-full"
+                >
+                  <Database size={10} className="shrink-0 opacity-60" />
+                  <span className="text-[11px] truncate font-mono">
+                    {dbName}
+                  </span>
+                </button>
+              </li>
+            ))}
           </ul>
         )
       ) : showingSchemas ? (
@@ -327,35 +299,19 @@ export function SchemaTree() {
           </div>
         ) : (
           <ul className="pl-1 pb-1 space-y-0.5">
-            {filteredSchemas.map((schema) => {
-              const key = `schema:${schema.name}`;
-              const isExpanded = expandedItems.has(key);
-              return (
-                <li key={schema.name}>
-                  <div className="flex items-center">
-                    <button
-                      onClick={() => toggleExpand(key)}
-                      className="p-0.5 text-[#484f58] hover:text-[#7d8590] shrink-0"
-                    >
-                      {isExpanded ? (
-                        <ChevronDown size={10} />
-                      ) : (
-                        <ChevronRight size={10} />
-                      )}
-                    </button>
-                    <button
-                      onClick={() => selectSchema(schema.name)}
-                      className="flex items-center gap-1.5 px-1 py-1.5 rounded-lg text-left transition-all text-[#7d8590] hover:bg-[#292e36] hover:text-[#e6edf3] flex-1"
-                    >
-                      <Layers size={10} className="shrink-0 opacity-60" />
-                      <span className="text-[11px] truncate font-mono">
-                        {schema.name}
-                      </span>
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
+            {filteredSchemas.map((schema) => (
+              <li key={schema.name}>
+                <button
+                  onClick={() => selectSchema(schema.name)}
+                  className="flex items-center gap-1.5 px-1 py-1.5 rounded-lg text-left transition-all text-[#7d8590] hover:bg-[#292e36] hover:text-[#e6edf3] w-full"
+                >
+                  <Layers size={10} className="shrink-0 opacity-60" />
+                  <span className="text-[11px] truncate font-mono">
+                    {schema.name}
+                  </span>
+                </button>
+              </li>
+            ))}
           </ul>
         )
       ) : filteredTables.length === 0 ? (
