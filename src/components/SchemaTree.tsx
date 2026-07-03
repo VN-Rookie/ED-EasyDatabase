@@ -156,6 +156,16 @@ export function SchemaTree() {
     selectTable(tableName);
   };
 
+  const handleFkNavigate = async (referencedTable: string) => {
+    if (!activeConnectionId) return;
+    // Close current expanded details
+    const tableKey = `table:${referencedTable}`;
+    if (!expandedTableDetails.has(tableKey)) {
+      setExpandedTableDetails((prev) => new Set(prev).add(tableKey));
+    }
+    selectTable(referencedTable);
+  };
+
   const filteredDbs = databases.filter((n) =>
     n.toLowerCase().includes(search.toLowerCase())
   );
@@ -403,14 +413,23 @@ export function SchemaTree() {
                       </div>
                     ) : (
                       <ul className="pl-4 space-y-0.5">
-                        {cols.slice(0, 10).map((col) => (
-                          <li
-                            key={col}
-                            className="text-[10px] text-[#484f58] font-mono truncate"
-                          >
-                            {col}
-                          </li>
-                        ))}
+                        {cols.slice(0, 10).map((col) => {
+                          // Check if column is a foreign key
+                          const isForeignKey = fks.some(fk =>
+                            fk.columns.split(',').map(c => c.trim()).includes(col)
+                          );
+                          return (
+                            <li
+                              key={col}
+                              className="text-[10px] text-[#484f58] font-mono truncate flex items-center gap-1"
+                            >
+                              {isForeignKey && (
+                                <Key size={8} className="text-blue-400 shrink-0" />
+                              )}
+                              <span className="truncate">{col}</span>
+                            </li>
+                          );
+                        })}
                         {cols.length > 10 && (
                           <li className="text-[9px] text-[#484f58] italic">
                             +{cols.length - 10} more
@@ -475,10 +494,13 @@ export function SchemaTree() {
                         {fks.slice(0, 5).map((fk, idx) => (
                           <li
                             key={`${fk.columns}_${fk.referenced_table}_${idx}`}
-                            className="text-[10px] text-[#484f58] font-mono truncate"
+                            className="text-[10px] font-mono truncate flex items-center gap-1 group cursor-pointer hover:text-blue-400"
                             title={`${fk.columns} → ${fk.referenced_table}`}
+                            onClick={() => handleFkNavigate(fk.referenced_table)}
                           >
-                            {fk.columns} → {fk.referenced_table}
+                            <span className="text-[#484f58]">{fk.columns}</span>
+                            <span className="text-[#484f58]">→</span>
+                            <span className="text-blue-400 group-hover:underline">{fk.referenced_table}</span>
                           </li>
                         ))}
                         {fks.length > 5 && (
