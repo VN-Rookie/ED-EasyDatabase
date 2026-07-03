@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { FileText, Columns3, Check } from "lucide-react";
-import { runQuery, describeTable } from "./objectApi";
+import { runQuery, describeTable, listForeignKeys } from "./objectApi";
 import { updateRow } from "./editApi";
 import { EmptyState } from "../../shared/ui/EmptyState";
 import { Spinner } from "../../shared/ui/Spinner";
 import { DataGridCell } from "./DataGridCell";
 import { useDataGridStore, type DirtyCell } from "./dataGridStore";
-import type { QueryResult, ColumnInfo } from "../../shared/types";
+import type { QueryResult, ColumnInfo, ForeignKeyInfo } from "../../shared/types";
 import type { OpenObject } from "../../stores/workspaceStore";
 
 function ColumnPicker({ columns, hidden, onToggle }: {
@@ -81,11 +81,13 @@ function DataGrid({
   object,
   columns,
   primaryKey,
+  foreignKeys,
 }: {
   result: QueryResult;
   object: OpenObject;
   columns: ColumnInfo[];
   primaryKey: string | null;
+  foreignKeys: ForeignKeyInfo[];
 }) {
   const { toggleColumn, hiddenColumns, stopEditing } = useDataGridStore();
 
@@ -96,6 +98,16 @@ function DataGrid({
   );
 
   const visibleCols = result.columns.filter((c) => !hidden.has(c));
+
+  // Build a map of column name -> FK info for quick lookup
+  const fkMap = new Map<string, ForeignKeyInfo>();
+  for (const fk of foreignKeys) {
+    // FK can reference multiple columns - map each one
+    const fkColumns = fk.columns.split(",").map((c) => c.trim());
+    for (const col of fkColumns) {
+      fkMap.set(col, fk);
+    }
+  }
 
   // Handle cell save - update the row in the database
   const handleSave = useCallback(
@@ -149,6 +161,7 @@ function DataGrid({
                           rowIndex={i}
                           value={row[c]}
                           isPrimaryKey={isPk}
+                          isForeignKey={fkMap.has(c)}
                           dataType={colInfo?.data_type ?? "text"}
                           onSave={handleSave}
                         />
@@ -168,6 +181,7 @@ function DataGrid({
 export function DataGridShell({ object }: { object: OpenObject }) {
   const [result, setResult] = useState<QueryResult | null>(null);
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
+  const [foreignKeys, setForeignKeys] = useState<ForeignKeyInfo[]>([]);
   const [error, setError] = useState("");
   const isMongo = object.engine === "mongodb";
 
@@ -176,17 +190,19 @@ export function DataGridShell({ object }: { object: OpenObject }) {
 
   useEffect(() => {
     if (isMongo) return;
-    setResult(null); setColumns([]); setError("");
+    setResult(null); setColumns([]); setForeignKeys([]); setError("");
 
     const fetchData = async () => {
       try {
-        // Fetch both table structure and data in parallel
-        const [cols, data] = await Promise.all([
+        // Fetch table structure, data, and FK metadata in parallel
+        const [cols, data, fks] = await Promise.all([
           describeTable(object.connId, object.table),
           runQuery(object.connId, `SELECT * FROM ${object.table} LIMIT 200`),
+          listForeignKeys(object.connId, object.table),
         ]);
         setColumns(cols);
         setResult(data);
+        setForeignKeys(fks);
       } catch (e) {
         setError(String(e));
       }
@@ -204,5 +220,5 @@ export function DataGridShell({ object }: { object: OpenObject }) {
   );
   if (result.rows.length === 0) return <div className="p-4 text-xs text-faint italic">No rows</div>;
 
-  return <DataGrid result={result} object={object} columns={columns} primaryKey={primaryKey} />;
+  return <DataGrid result={result} object={object} columns={columns} primaryKey={primaryKey} foreignKeys={foreignKeys} />;
 }
