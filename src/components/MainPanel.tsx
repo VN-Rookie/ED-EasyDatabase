@@ -14,7 +14,7 @@ import { FilterBar } from "./FilterBar";
 import { DocumentView } from "./DocumentView";
 import { IndexView } from "./IndexView";
 import type { QueryResult } from "../types";
-import { insertRow, deleteRow } from "../features/object-view/editApi";
+import { insertRow, updateRow, deleteRow } from "../features/object-view/editApi";
 
 function ident(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -95,8 +95,26 @@ export function MainPanel() {
       await invoke("update_document", { connId: activeConnectionId, collection: selectedTable, idHex, field: col, valueJson });
     } else {
       if (!pkCol) return;
-      const q = `UPDATE ${ident(selectedTable)} SET ${ident(col)} = ${toSqlLiteral(newValue)} WHERE ${ident(pkCol)} = ${pkToLiteral(row[pkCol])}`;
-      await invoke<QueryResult>("run_query", { connId: activeConnectionId, sql: q });
+      // Parse value to appropriate type
+      const trimmed = newValue.trim();
+      let parsedValue: unknown;
+      if (trimmed === "" || trimmed.toLowerCase() === "null") {
+        parsedValue = null;
+      } else if (!isNaN(Number(trimmed))) {
+        parsedValue = Number(trimmed);
+      } else if (trimmed.toLowerCase() === "true") {
+        parsedValue = true;
+      } else if (trimmed.toLowerCase() === "false") {
+        parsedValue = false;
+      } else {
+        parsedValue = trimmed;
+      }
+      await updateRow(activeConnectionId, {
+        table: selectedTable,
+        pk_column: pkCol,
+        pk_value: row[pkCol],
+        values: { [col]: parsedValue },
+      });
     }
     await loadTableData(selectedTable, page, sortCol, sortDir);
   }, [selectedTable, pkCol, activeConnectionId, isMongo, page, sortCol, sortDir, loadTableData]);
@@ -161,8 +179,26 @@ export function MainPanel() {
         await invoke("update_document", { connId: activeConnectionId, collection: selectedTable, idHex, field: edit.col, valueJson: mongoEncodeValue(edit.newValue) });
       } else {
         if (!pkCol) continue;
-        const q = `UPDATE ${ident(selectedTable)} SET ${ident(edit.col)} = ${toSqlLiteral(edit.newValue)} WHERE ${ident(pkCol)} = ${pkToLiteral(edit.row[pkCol])}`;
-        await invoke<QueryResult>("run_query", { connId: activeConnectionId, sql: q });
+        // Parse value to appropriate type
+        const trimmed = edit.newValue.trim();
+        let parsedValue: unknown;
+        if (trimmed === "" || trimmed.toLowerCase() === "null") {
+          parsedValue = null;
+        } else if (!isNaN(Number(trimmed))) {
+          parsedValue = Number(trimmed);
+        } else if (trimmed.toLowerCase() === "true") {
+          parsedValue = true;
+        } else if (trimmed.toLowerCase() === "false") {
+          parsedValue = false;
+        } else {
+          parsedValue = trimmed;
+        }
+        await updateRow(activeConnectionId, {
+          table: selectedTable,
+          pk_column: pkCol,
+          pk_value: edit.row[pkCol],
+          values: { [edit.col]: parsedValue },
+        });
       }
     }
     await loadTableData(selectedTable, page, sortCol, sortDir);
