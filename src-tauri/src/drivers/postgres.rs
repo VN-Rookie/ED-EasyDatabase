@@ -147,6 +147,100 @@ impl Driver for PostgresDriver {
         }).collect();
         Ok(QueryResult { columns, rows: data, rows_affected: None })
     }
+
+    async fn insert_row(&self, input: crate::model::InsertRowInput) -> Result<QueryResult, AppError> {
+        let table = &input.table;
+        let values = &input.values;
+
+        if values.is_empty() {
+            return Err(AppError::new("insert_row requires at least one value"));
+        }
+
+        let columns: Vec<String> = values.keys().cloned().collect();
+        let values_list: Vec<String> = columns.iter()
+            .filter_map(|col| values.get(col).map(|v| json_to_sql_literal(v)))
+            .collect();
+
+        let column_list = columns.join(", ");
+        let value_list = values_list.join(", ");
+
+        let sql = format!("INSERT INTO {} ({}) VALUES ({})", table, column_list, value_list);
+
+        let result = sqlx::query(&sql)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(QueryResult {
+            columns: vec![],
+            rows: vec![],
+            rows_affected: Some(result.rows_affected()),
+        })
+    }
+
+    async fn update_row(&self, input: crate::model::UpdateRowInput) -> Result<QueryResult, AppError> {
+        let table = &input.table;
+        let pk_column = &input.pk_column;
+        let pk_value = &input.pk_value;
+        let values = &input.values;
+
+        if values.is_empty() {
+            return Err(AppError::new("update_row requires at least one value"));
+        }
+
+        let set_clauses: Vec<String> = values.keys()
+            .filter_map(|col| values.get(col).map(|v| format!("{} = {}", col, json_to_sql_literal(v))))
+            .collect();
+        let set_list = set_clauses.join(", ");
+        let pk_literal = json_to_sql_literal(pk_value);
+
+        let sql = format!("UPDATE {} SET {} WHERE {} = {}", table, set_list, pk_column, pk_literal);
+
+        let result = sqlx::query(&sql)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(QueryResult {
+            columns: vec![],
+            rows: vec![],
+            rows_affected: Some(result.rows_affected()),
+        })
+    }
+
+    async fn delete_row(&self, input: crate::model::DeleteRowInput) -> Result<QueryResult, AppError> {
+        let table = &input.table;
+        let pk_column = &input.pk_column;
+        let pk_value = &input.pk_value;
+
+        let pk_literal = json_to_sql_literal(pk_value);
+        let sql = format!("DELETE FROM {} WHERE {} = {}", table, pk_column, pk_literal);
+
+        let result = sqlx::query(&sql)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(QueryResult {
+            columns: vec![],
+            rows: vec![],
+            rows_affected: Some(result.rows_affected()),
+        })
+    }
+}
+
+/// Convert a JSON value to a SQL literal string (for Postgres).
+fn json_to_sql_literal(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "NULL".to_string(),
+        serde_json::Value::Bool(b) => if *b { "TRUE".to_string() } else { "FALSE".to_string() },
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => format!("'{}'", escape_sql_string(s)),
+        serde_json::Value::Array(arr) => format!("'{}'", escape_sql_string(&serde_json::to_string(arr).unwrap_or_default())),
+        serde_json::Value::Object(obj) => format!("'{}'", escape_sql_string(&serde_json::to_string(obj).unwrap_or_default())),
+    }
+}
+
+/// Escape single quotes in SQL strings.
+fn escape_sql_string(s: &str) -> String {
+    s.replace('\'', "''")
 }
 
 // Live integration test against a real Postgres. Gated on TOOLSQL_TEST_PG=1 so the
