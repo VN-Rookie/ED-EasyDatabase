@@ -1,20 +1,45 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Loader2 } from "lucide-react";
-import { describeTable } from "./objectApi";
-import type { ColumnInfo } from "../../shared/types";
+import { describeTable, listForeignKeys } from "./objectApi";
+import type { ColumnInfo, ForeignKeyInfo } from "../../shared/types";
 import type { OpenObject } from "../../stores/workspaceStore";
 
 export function StructureShell({ object }: { object: OpenObject }) {
   const [cols, setCols] = useState<ColumnInfo[] | null>(null);
+  const [foreignKeys, setForeignKeys] = useState<ForeignKeyInfo[] | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setCols(null); setError("");
-    describeTable(object.connId, object.table).then(setCols).catch((e) => setError(String(e)));
+    setCols(null);
+    setForeignKeys(null);
+    setError("");
+
+    Promise.all([
+      describeTable(object.connId, object.table),
+      listForeignKeys(object.connId, object.table),
+    ])
+      .then(([columns, fks]) => {
+        setCols(columns);
+        setForeignKeys(fks);
+      })
+      .catch((e) => setError(String(e)));
   }, [object.connId, object.table]);
 
+  // Build a set of column names that are foreign keys
+  const fkColumns = useMemo(() => {
+    if (!foreignKeys) return new Set<string>();
+    const fkSet = new Set<string>();
+    for (const fk of foreignKeys) {
+      // fk.columns can be comma-separated for composite FKs
+      for (const col of fk.columns.split(",")) {
+        fkSet.add(col.trim());
+      }
+    }
+    return fkSet;
+  }, [foreignKeys]);
+
   if (error) return <div className="p-4 text-xs text-danger break-words">{error}</div>;
-  if (!cols) return <div className="p-4 text-xs text-muted flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Loading…</div>;
+  if (!cols || foreignKeys === null) return <div className="p-4 text-xs text-muted flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Loading…</div>;
   if (cols.length === 0) return <div className="p-4 text-xs text-faint italic">No columns</div>;
 
   return (
@@ -34,6 +59,7 @@ export function StructureShell({ object }: { object: OpenObject }) {
               <td className="px-3 py-2 max-w-[200px] text-xs font-medium text-fg">
                 <div className="flex items-center gap-1.5 min-w-0">
                   {col.is_pk && <span className="text-warn text-[10px] shrink-0" title="Primary Key">🔑</span>}
+                  {fkColumns.has(col.name) && <span className="text-accent text-[10px] shrink-0" title="Foreign Key">🔗</span>}
                   <span className="truncate flex-1" title={col.name}>{col.name}</span>
                 </div>
               </td>
