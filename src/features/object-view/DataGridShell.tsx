@@ -1,15 +1,13 @@
-import { useEffect, useState, useRef } from "react";
-import { FileText, Maximize2, Columns3, Check } from "lucide-react";
-import { runQuery } from "./objectApi";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { FileText, Columns3, Check } from "lucide-react";
+import { runQuery, describeTable } from "./objectApi";
+import { updateRow } from "./editApi";
 import { EmptyState } from "../../shared/ui/EmptyState";
-import { CellDetailModal } from "../../shared/ui/CellDetailModal";
 import { Spinner } from "../../shared/ui/Spinner";
-import type { QueryResult } from "../../shared/types";
+import { DataGridCell } from "./DataGridCell";
+import { useDataGridStore, type DirtyCell } from "./dataGridStore";
+import type { QueryResult, ColumnInfo } from "../../shared/types";
 import type { OpenObject } from "../../stores/workspaceStore";
-
-const MAX_CELL_LEN = 80;
-
-interface CellModal { column: string; value: string }
 
 function ColumnPicker({ columns, hidden, onToggle }: {
   columns: string[];
@@ -78,42 +76,50 @@ function ColumnPicker({ columns, hidden, onToggle }: {
   );
 }
 
-function DataGrid({ result, object }: { result: QueryResult; object: OpenObject }) {
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const [modal, setModal] = useState<CellModal | null>(null);
+function DataGrid({
+  result,
+  object,
+  columns,
+  primaryKey,
+}: {
+  result: QueryResult;
+  object: OpenObject;
+  columns: ColumnInfo[];
+  primaryKey: string | null;
+}) {
+  const { toggleColumn, hiddenColumns, stopEditing } = useDataGridStore();
 
-  useEffect(() => { setHidden(new Set()); }, [object.id]);
-
-  const toggleCol = (col: string) =>
-    setHidden((prev) => {
-      const next = new Set(prev);
-      next.has(col) ? next.delete(col) : next.add(col);
-      return next;
-    });
+  const hidden = hiddenColumns.get(object.id) ?? new Set<string>();
+  const toggleCol = useCallback(
+    (col: string) => toggleColumn(object.id, col),
+    [object.id, toggleColumn]
+  );
 
   const visibleCols = result.columns.filter((c) => !hidden.has(c));
 
-  const renderCell = (col: string, raw: unknown) => {
-    if (raw === null || raw === undefined) return <span className="text-faint italic">NULL</span>;
-    const str = typeof raw === "object" ? JSON.stringify(raw) : String(raw);
-    if (str.length <= MAX_CELL_LEN) return <span className="block truncate whitespace-nowrap">{str}</span>;
-    return (
-      <span className="flex items-center gap-1 min-w-0">
-        <span className="flex-1 truncate whitespace-nowrap min-w-0">{str.slice(0, MAX_CELL_LEN)}…</span>
-        <button
-          onClick={() => setModal({ column: col, value: str })}
-          className="shrink-0 p-0.5 rounded text-muted hover:text-fg hover:bg-hover transition-colors"
-          title="View full value"
-        >
-          <Maximize2 size={10} />
-        </button>
-      </span>
-    );
-  };
+  // Handle cell save - update the row in the database
+  const handleSave = useCallback(
+    async (edit: DirtyCell) => {
+      if (!primaryKey) return;
+
+      const pkValue = result.rows[edit.rowIndex][primaryKey];
+      try {
+        await updateRow(object.connId, {
+          table: object.table,
+          pk_column: primaryKey,
+          pk_value: pkValue,
+          values: { [edit.column]: edit.newValue },
+        });
+        stopEditing();
+      } catch (err) {
+        console.error("Failed to save:", err);
+      }
+    },
+    [object, primaryKey, result.rows, stopEditing]
+  );
 
   return (
     <>
-      {modal && <CellDetailModal column={modal.column} value={modal.value} onClose={() => setModal(null)} />}
       {/* Toolbar */}
       <div className="flex items-center justify-end px-2 py-1 border-b border-border bg-surface shrink-0">
         <ColumnPicker columns={result.columns} hidden={hidden} onToggle={toggleCol} />
@@ -132,13 +138,24 @@ function DataGrid({ result, object }: { result: QueryResult; object: OpenObject 
           <tbody>
             {result.rows.map((row, i) => (
               <tr key={i} className={`border-b border-border/60 hover:bg-hover ${i % 2 === 1 ? "bg-surface/40" : ""}`}>
-                {visibleCols.map((c) => (
-                  <td key={c} className="px-3 py-1.5 text-[12px] font-mono text-fg/90">
-                    <div className="max-w-[280px] overflow-hidden">
-                      {renderCell(c, row[c])}
-                    </div>
-                  </td>
-                ))}
+                {visibleCols.map((c) => {
+                  const colInfo = columns.find((col) => col.name === c);
+                  const isPk = c === primaryKey;
+                  return (
+                    <td key={c} className="px-3 py-1.5 text-[12px] font-mono text-fg/90">
+                      <div className="max-w-[280px] overflow-hidden">
+                        <DataGridCell
+                          column={c}
+                          rowIndex={i}
+                          value={row[c]}
+                          isPrimaryKey={isPk}
+                          dataType={colInfo?.data_type ?? "text"}
+                          onSave={handleSave}
+                        />
+                      </div>
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
@@ -150,14 +167,32 @@ function DataGrid({ result, object }: { result: QueryResult; object: OpenObject 
 
 export function DataGridShell({ object }: { object: OpenObject }) {
   const [result, setResult] = useState<QueryResult | null>(null);
+  const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [error, setError] = useState("");
   const isMongo = object.engine === "mongodb";
 
+  // Find primary key from columns
+  const primaryKey = columns.find((c) => c.is_pk)?.name ?? null;
+
   useEffect(() => {
     if (isMongo) return;
-    setResult(null); setError("");
-    const quote = object.engine === "mysql" ? `\`${object.table}\`` : `"${object.table}"`;
-    runQuery(object.connId, `SELECT * FROM ${quote} LIMIT 200`).then(setResult).catch((e) => setError(String(e)));
+    setResult(null); setColumns([]); setError("");
+
+    const fetchData = async () => {
+      try {
+        // Fetch both table structure and data in parallel
+        const [cols, data] = await Promise.all([
+          describeTable(object.connId, object.table),
+          runQuery(object.connId, `SELECT * FROM ${object.table} LIMIT 200`),
+        ]);
+        setColumns(cols);
+        setResult(data);
+      } catch (e) {
+        setError(String(e));
+      }
+    };
+
+    fetchData();
   }, [isMongo, object.connId, object.table, object.engine]);
 
   if (isMongo) return <EmptyState icon={FileText} title="Document view — next milestone" subtitle="MongoDB document browsing is a later slice" />;
@@ -169,5 +204,5 @@ export function DataGridShell({ object }: { object: OpenObject }) {
   );
   if (result.rows.length === 0) return <div className="p-4 text-xs text-faint italic">No rows</div>;
 
-  return <DataGrid result={result} object={object} />;
+  return <DataGrid result={result} object={object} columns={columns} primaryKey={primaryKey} />;
 }

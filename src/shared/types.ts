@@ -62,3 +62,30 @@ export interface QueryResult {
   rows: Record<string, unknown>[];
   rows_affected: number | null;
 }
+
+// ============================================
+// Edit Types - Inline data editing
+// ============================================
+
+export type EditAction = "insert" | "update" | "delete";
+
+export interface CellEdit {
+  rowIndex: number;
+  columnName: string;
+  originalValue: unknown;
+  newValue: unknown;
+}
+
+export interface RowEdit {
+  rowIndex: number;
+  action: EditAction;
+  tableName: string;
+  primaryKey: Record<string, unknown>;
+  changes: CellEdit[];
+}
+
+export interface EditConfirmation {
+  connectionId: string;
+  tableName: string;
+  edits: RowEdit[];
+}

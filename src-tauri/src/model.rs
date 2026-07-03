@@ -64,3 +64,33 @@ pub struct ConnectionMeta {
     pub name: String,
     pub db_type: String,
 }
+
+/// Input for inserting a row
+#[derive(Deserialize)]
+pub struct InsertRowInput {
+    pub table: String,
+    pub values: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Input for updating a row
+#[derive(Deserialize)]
+pub struct UpdateRowInput {
+    pub table: String,
+    pub pk_column: String,
+    pub pk_value: serde_json::Value,
+    pub values: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Input for deleting a row
+#[derive(Deserialize)]
+pub struct DeleteRowInput {
+    pub table: String,
+    pub pk_column: String,
+    pub pk_value: serde_json::Value,
+}
+
+/// Result for execute operations (INSERT/UPDATE/DELETE/DDL)
+#[derive(Serialize)]
+pub struct ExecResult {
+    pub rows_affected: u64,
+}
