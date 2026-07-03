@@ -94,3 +94,35 @@ pub struct DeleteRowInput {
 pub struct ExecResult {
     pub rows_affected: u64,
 }
+
+/// Input for inserting a MongoDB document
+#[derive(Deserialize)]
+pub struct InsertDocumentInput {
+    pub collection: String,
+    pub document: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Input for updating MongoDB documents
+#[derive(Deserialize)]
+pub struct UpdateDocumentInput {
+    pub collection: String,
+    pub filter: serde_json::Map<String, serde_json::Value>,
+    pub update: serde_json::Map<String, serde_json::Value>,
+    pub upsert: Option<bool>,
+}
+
+/// Input for deleting MongoDB documents
+#[derive(Deserialize)]
+pub struct DeleteDocumentInput {
+    pub collection: String,
+    pub filter: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Input for replacing a MongoDB document
+#[derive(Deserialize)]
+pub struct ReplaceDocumentInput {
+    pub collection: String,
+    pub filter: serde_json::Map<String, serde_json::Value>,
+    pub replacement: serde_json::Map<String, serde_json::Value>,
+    pub upsert: Option<bool>,
+}
