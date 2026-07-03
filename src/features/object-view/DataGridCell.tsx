@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
+import { Maximize2 } from "lucide-react";
 import { Input } from "../../shared/ui/Input";
+import { Textarea } from "../../shared/ui/Textarea";
 import { Select } from "../../shared/ui/Select";
+import { CellExpandModal } from "../../shared/ui/CellExpandModal";
 import { useDataGridStore, type DirtyCell } from "./dataGridStore";
 
 const MAX_CELL_LEN = 80;
@@ -37,6 +40,7 @@ export function DataGridCell({
 
   const [editValue, setEditValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [showExpandModal, setShowExpandModal] = useState(false);
 
   const isEditing = editingCell?.rowIndex === rowIndex && editingCell?.column === column;
   const currentValue = getCellValue(rowIndex, column, value);
@@ -129,6 +133,20 @@ export function DataGridCell({
               </option>
             ))}
           </Select>
+        ) : editValue.length > 50 || editValue.includes("\n") ? (
+          <Textarea
+            value={editValue}
+            onChange={(e) => {
+              setEditValue(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={handleKeyDown}
+            onBlur={handleBlur}
+            autoFocus
+            rows={Math.min(Math.ceil(editValue.length / 40) + 1, 10)}
+            className={error ? "border-danger focus:border-danger" : ""}
+            placeholder={dataType.includes("int") || dataType.includes("float") ? "0" : "Enter value..."}
+          />
         ) : (
           <Input
             value={editValue}
@@ -155,25 +173,45 @@ export function DataGridCell({
     }
 
     const str = typeof currentValue === "object" ? JSON.stringify(currentValue) : String(currentValue);
+    const isLongContent = str.length > MAX_CELL_LEN;
 
-    if (str.length <= MAX_CELL_LEN) {
+    if (!isLongContent) {
       return <span className="block truncate whitespace-nowrap">{str}</span>;
     }
 
     return (
-      <span className="flex items-center gap-1 min-w-0">
+      <span className="flex items-center gap-1 min-w-0 flex-1">
         <span className="flex-1 truncate whitespace-nowrap min-w-0">{str.slice(0, MAX_CELL_LEN)}…</span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowExpandModal(true);
+          }}
+          className="shrink-0 p-1 text-muted hover:text-fg hover:bg-hover rounded transition-colors"
+          title="Expand to view full content"
+        >
+          <Maximize2 size={12} />
+        </button>
       </span>
     );
   };
 
   return (
-    <div
-      className={`w-full min-h-[32px] flex items-center cursor-text ${hasDirty ? "bg-accent/10" : ""}`}
-      onDoubleClick={handleDoubleClick}
-      title={isPrimaryKey ? "Primary key (read-only)" : "Double-click to edit"}
-    >
-      {renderDisplayValue()}
-    </div>
+    <>
+      <div
+        className={`w-full min-h-[32px] flex items-center cursor-text ${hasDirty ? "bg-accent/10" : ""}`}
+        onDoubleClick={handleDoubleClick}
+        title={isPrimaryKey ? "Primary key (read-only)" : "Double-click to edit"}
+      >
+        {renderDisplayValue()}
+      </div>
+      {showExpandModal && (
+        <CellExpandModal
+          column={column}
+          value={currentValue}
+          onClose={() => setShowExpandModal(false)}
+        />
+      )}
+    </>
   );
 }
