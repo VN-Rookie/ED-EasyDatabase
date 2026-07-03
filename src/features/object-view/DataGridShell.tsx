@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { FileText, Columns3, Check } from "lucide-react";
-import { runQuery, describeTable, listForeignKeys } from "./objectApi";
+import { runQuery, describeTable, listForeignKeys, fetchForeignKeyReference } from "./objectApi";
 import { updateRow } from "./editApi";
 import { EmptyState } from "../../shared/ui/EmptyState";
 import { Spinner } from "../../shared/ui/Spinner";
@@ -82,12 +82,14 @@ function DataGrid({
   columns,
   primaryKey,
   foreignKeys,
+  fkOptions,
 }: {
   result: QueryResult;
   object: OpenObject;
   columns: ColumnInfo[];
   primaryKey: string | null;
   foreignKeys: ForeignKeyInfo[];
+  fkOptions: Map<string, { value: string; label: string }[]>;
 }) {
   const { toggleColumn, hiddenColumns, stopEditing } = useDataGridStore();
 
@@ -162,6 +164,7 @@ function DataGrid({
                           value={row[c]}
                           isPrimaryKey={isPk}
                           isForeignKey={fkMap.has(c)}
+                          foreignKeyOptions={fkMap.has(c) ? fkOptions.get(c) ?? [] : []}
                           dataType={colInfo?.data_type ?? "text"}
                           onSave={handleSave}
                         />
@@ -182,6 +185,7 @@ export function DataGridShell({ object }: { object: OpenObject }) {
   const [result, setResult] = useState<QueryResult | null>(null);
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [foreignKeys, setForeignKeys] = useState<ForeignKeyInfo[]>([]);
+  const [fkOptions, setFkOptions] = useState<Map<string, { value: string; label: string }[]>>(new Map());
   const [error, setError] = useState("");
   const isMongo = object.engine === "mongodb";
 
@@ -190,7 +194,7 @@ export function DataGridShell({ object }: { object: OpenObject }) {
 
   useEffect(() => {
     if (isMongo) return;
-    setResult(null); setColumns([]); setForeignKeys([]); setError("");
+    setResult(null); setColumns([]); setForeignKeys([]); setFkOptions(new Map()); setError("");
 
     const fetchData = async () => {
       try {
@@ -203,6 +207,28 @@ export function DataGridShell({ object }: { object: OpenObject }) {
         setColumns(cols);
         setResult(data);
         setForeignKeys(fks);
+
+        // Fetch FK reference table data for dropdown options
+        const fkOptionsMap = new Map<string, { value: string; label: string }[]>();
+        const fkPromises: Promise<void>[] = [];
+
+        for (const fk of fks) {
+          const fkColumns = fk.columns.split(",").map((c) => c.trim());
+          const refTable = fk.referenced_table;
+
+          const promise = fetchForeignKeyReference(object.connId, refTable).then((options) => {
+            for (const col of fkColumns) {
+              fkOptionsMap.set(col, options);
+            }
+          }).catch((err) => {
+            console.error(`Failed to fetch FK reference for ${refTable}:`, err);
+          });
+
+          fkPromises.push(promise);
+        }
+
+        await Promise.all(fkPromises);
+        setFkOptions(fkOptionsMap);
       } catch (e) {
         setError(String(e));
       }
@@ -220,5 +246,5 @@ export function DataGridShell({ object }: { object: OpenObject }) {
   );
   if (result.rows.length === 0) return <div className="p-4 text-xs text-faint italic">No rows</div>;
 
-  return <DataGrid result={result} object={object} columns={columns} primaryKey={primaryKey} foreignKeys={foreignKeys} />;
+  return <DataGrid result={result} object={object} columns={columns} primaryKey={primaryKey} foreignKeys={foreignKeys} fkOptions={fkOptions} />;
 }
