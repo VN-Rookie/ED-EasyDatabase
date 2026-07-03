@@ -156,6 +156,16 @@ export function SchemaTree() {
     selectTable(tableName);
   };
 
+  const handleFkNavigate = async (referencedTable: string) => {
+    if (!activeConnectionId) return;
+    // Close current expanded details
+    const tableKey = `table:${referencedTable}`;
+    if (!expandedTableDetails.has(tableKey)) {
+      setExpandedTableDetails((prev) => new Set(prev).add(tableKey));
+    }
+    selectTable(referencedTable);
+  };
+
   const filteredDbs = databases.filter((n) =>
     n.toLowerCase().includes(search.toLowerCase())
   );
@@ -484,10 +494,13 @@ export function SchemaTree() {
                         {fks.slice(0, 5).map((fk, idx) => (
                           <li
                             key={`${fk.columns}_${fk.referenced_table}_${idx}`}
-                            className="text-[10px] text-[#484f58] font-mono truncate"
+                            className="text-[10px] font-mono truncate flex items-center gap-1 group cursor-pointer hover:text-blue-400"
                             title={`${fk.columns} → ${fk.referenced_table}`}
+                            onClick={() => handleFkNavigate(fk.referenced_table)}
                           >
-                            {fk.columns} → {fk.referenced_table}
+                            <span className="text-[#484f58]">{fk.columns}</span>
+                            <span className="text-[#484f58]">→</span>
+                            <span className="text-blue-400 group-hover:underline">{fk.referenced_table}</span>
                           </li>
                         ))}
                         {fks.length > 5 && (
