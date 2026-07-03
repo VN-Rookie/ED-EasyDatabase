@@ -403,14 +403,23 @@ export function SchemaTree() {
                       </div>
                     ) : (
                       <ul className="pl-4 space-y-0.5">
-                        {cols.slice(0, 10).map((col) => (
-                          <li
-                            key={col}
-                            className="text-[10px] text-[#484f58] font-mono truncate"
-                          >
-                            {col}
-                          </li>
-                        ))}
+                        {cols.slice(0, 10).map((col) => {
+                          // Check if column is a foreign key
+                          const isForeignKey = fks.some(fk =>
+                            fk.columns.split(',').map(c => c.trim()).includes(col)
+                          );
+                          return (
+                            <li
+                              key={col}
+                              className="text-[10px] text-[#484f58] font-mono truncate flex items-center gap-1"
+                            >
+                              {isForeignKey && (
+                                <Key size={8} className="text-blue-400 shrink-0" />
+                              )}
+                              <span className="truncate">{col}</span>
+                            </li>
+                          );
+                        })}
                         {cols.length > 10 && (
                           <li className="text-[9px] text-[#484f58] italic">
                             +{cols.length - 10} more
