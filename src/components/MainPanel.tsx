@@ -14,7 +14,7 @@ import { FilterBar } from "./FilterBar";
 import { DocumentView } from "./DocumentView";
 import { IndexView } from "./IndexView";
 import type { QueryResult } from "../types";
-import { insertRow } from "../features/object-view/editApi";
+import { insertRow, deleteRow } from "../features/object-view/editApi";
 
 function ident(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -110,8 +110,8 @@ export function MainPanel() {
       await invoke("delete_document", { connId: activeConnectionId, collection: selectedTable, idHex });
     } else {
       if (!pkCol) return;
-      const q = `DELETE FROM ${ident(selectedTable)} WHERE ${ident(pkCol)} = ${pkToLiteral(row[pkCol])}`;
-      await invoke<QueryResult>("run_query", { connId: activeConnectionId, sql: q });
+      const pkValue = row[pkCol];
+      await deleteRow(activeConnectionId, { table: selectedTable, pk_column: pkCol, pk_value: pkValue });
     }
     await loadTableData(selectedTable, page, sortCol, sortDir);
   }, [selectedTable, pkCol, activeConnectionId, isMongo, page, sortCol, sortDir, loadTableData]);
