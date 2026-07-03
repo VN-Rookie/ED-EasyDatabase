@@ -370,6 +370,71 @@ impl Driver for MongoDriver {
             rows_affected: Some(result.modified_count),
         })
     }
+
+    async fn insert_row(&self, input: crate::model::InsertRowInput) -> Result<QueryResult, AppError> {
+        let collection: mongodb::Collection<Document> = self.client
+            .database(&self.current_db())
+            .collection(&input.table);
+
+        let doc = json_map_to_doc(&input.values)?;
+
+        let result = collection.insert_one(doc)
+            .await
+            .map_err(|e| AppError::new(e.to_string()))?;
+
+        Ok(QueryResult {
+            columns: vec!["inserted_id".to_string()],
+            rows: vec![serde_json::json!(result.inserted_id.to_string())],
+            rows_affected: Some(1),
+        })
+    }
+
+    async fn update_row(&self, input: crate::model::UpdateRowInput) -> Result<QueryResult, AppError> {
+        let collection: mongodb::Collection<Document> = self.client
+            .database(&self.current_db())
+            .collection(&input.table);
+
+        // Build filter for the primary key
+        let pk_bson = json_to_bson(&input.pk_value);
+        let filter = mongodb::bson::doc! { input.pk_column: pk_bson };
+
+        // Build update document from values
+        let update_doc = json_map_to_doc(&input.values)?;
+        let update = mongodb::bson::doc! { "$set": update_doc };
+
+        let result = collection.update_one(filter, update)
+            .await
+            .map_err(|e| AppError::new(e.to_string()))?;
+
+        Ok(QueryResult {
+            columns: vec!["matched_count".to_string(), "modified_count".to_string()],
+            rows: vec![serde_json::json!({
+                "matched_count": result.matched_count,
+                "modified_count": result.modified_count,
+            })],
+            rows_affected: Some(result.modified_count),
+        })
+    }
+
+    async fn delete_row(&self, input: crate::model::DeleteRowInput) -> Result<QueryResult, AppError> {
+        let collection: mongodb::Collection<Document> = self.client
+            .database(&self.current_db())
+            .collection(&input.table);
+
+        // Build filter for the primary key
+        let pk_bson = json_to_bson(&input.pk_value);
+        let filter = mongodb::bson::doc! { input.pk_column: pk_bson };
+
+        let result = collection.delete_one(filter)
+            .await
+            .map_err(|e| AppError::new(e.to_string()))?;
+
+        Ok(QueryResult {
+            columns: vec!["deleted_count".to_string()],
+            rows: vec![serde_json::json!(result.deleted_count)],
+            rows_affected: Some(result.deleted_count),
+        })
+    }
 }
 
 #[cfg(test)]
