@@ -1,8 +1,16 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { Loader2 } from "lucide-react";
 import { describeTable, listForeignKeys } from "./objectApi";
 import type { ColumnInfo, ForeignKeyInfo } from "../../shared/types";
-import type { OpenObject } from "../../stores/workspaceStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+
+interface OpenObject {
+  id: string;
+  connId: string;
+  table: string;
+  label: string;
+  engine: "postgres" | "mysql" | "mongodb";
+}
 
 export function StructureShell({ object }: { object: OpenObject }) {
   const [cols, setCols] = useState<ColumnInfo[] | null>(null);
@@ -25,18 +33,34 @@ export function StructureShell({ object }: { object: OpenObject }) {
       .catch((e) => setError(String(e)));
   }, [object.connId, object.table]);
 
-  // Build a set of column names that are foreign keys
-  const fkColumns = useMemo(() => {
-    if (!foreignKeys) return new Set<string>();
-    const fkSet = new Set<string>();
+  // Build a map from column name to FK info
+  const fkColumnInfo = useMemo(() => {
+    if (!foreignKeys) return new Map<string, ForeignKeyInfo>();
+    const map = new Map<string, ForeignKeyInfo>();
     for (const fk of foreignKeys) {
       // fk.columns can be comma-separated for composite FKs
       for (const col of fk.columns.split(",")) {
-        fkSet.add(col.trim());
+        map.set(col.trim(), fk);
       }
     }
-    return fkSet;
+    return map;
   }, [foreignKeys]);
+
+  // Build a set of column names that are foreign keys (for backward compat)
+  const fkColumns = useMemo(() => new Set(fkColumnInfo.keys()), [fkColumnInfo]);
+
+  const { openObject } = useWorkspaceStore();
+
+  const handleFkClick = useCallback((fk: ForeignKeyInfo) => {
+    const objId = `${object.connId}:${fk.referenced_table}`;
+    openObject({
+      id: objId,
+      connId: object.connId,
+      table: fk.referenced_table,
+      label: fk.referenced_table,
+      engine: object.engine,
+    });
+  }, [object.connId, object.engine, openObject]);
 
   if (error) return <div className="p-4 text-xs text-danger break-words">{error}</div>;
   if (!cols || foreignKeys === null) return <div className="p-4 text-xs text-muted flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Loading…</div>;
@@ -59,7 +83,15 @@ export function StructureShell({ object }: { object: OpenObject }) {
               <td className="px-3 py-2 max-w-[200px] text-xs font-medium text-fg">
                 <div className="flex items-center gap-1.5 min-w-0">
                   {col.is_pk && <span className="text-warn text-[10px] shrink-0" title="Primary Key">🔑</span>}
-                  {fkColumns.has(col.name) && <span className="text-accent text-[10px] shrink-0" title="Foreign Key">🔗</span>}
+                  {fkColumns.has(col.name) && fkColumnInfo.get(col.name) && (
+                    <button
+                      onClick={() => handleFkClick(fkColumnInfo.get(col.name)!)}
+                      className="text-accent text-[10px] shrink-0 hover:opacity-70 transition-opacity cursor-pointer"
+                      title={`Go to ${fkColumnInfo.get(col.name)!.referenced_table}`}
+                    >
+                      🔗
+                    </button>
+                  )}
                   <span className="truncate flex-1" title={col.name}>{col.name}</span>
                 </div>
               </td>
