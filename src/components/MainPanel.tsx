@@ -14,6 +14,7 @@ import { FilterBar } from "./FilterBar";
 import { DocumentView } from "./DocumentView";
 import { IndexView } from "./IndexView";
 import type { QueryResult } from "../types";
+import { insertRow } from "../features/object-view/editApi";
 
 function ident(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -117,14 +118,31 @@ export function MainPanel() {
 
   const handleRowInsert = useCallback(async (values: Record<string, string>) => {
     if (!selectedTable || !activeConnectionId) return;
+    if (isMongo) {
+      // MongoDB: handled by handleInsertDocument
+      return;
+    }
     const cols = Object.keys(values).filter(k => values[k].trim() !== "");
     if (!cols.length) return;
-    const colList = cols.map(c => ident(c)).join(", ");
-    const valList = cols.map(c => toSqlLiteral(values[c])).join(", ");
-    const q = `INSERT INTO ${ident(selectedTable)} (${colList}) VALUES (${valList})`;
-    await invoke<QueryResult>("run_query", { connId: activeConnectionId, sql: q });
+    // Build values object for insert_row command
+    const insertValues: Record<string, unknown> = {};
+    for (const col of cols) {
+      const raw = values[col].trim();
+      if (raw === "" || raw.toLowerCase() === "null") {
+        insertValues[col] = null;
+      } else if (!isNaN(Number(raw))) {
+        insertValues[col] = Number(raw);
+      } else if (raw.toLowerCase() === "true") {
+        insertValues[col] = true;
+      } else if (raw.toLowerCase() === "false") {
+        insertValues[col] = false;
+      } else {
+        insertValues[col] = raw;
+      }
+    }
+    await insertRow(activeConnectionId, { table: selectedTable, values: insertValues });
     await loadTableData(selectedTable, page, sortCol, sortDir);
-  }, [selectedTable, activeConnectionId, page, sortCol, sortDir, loadTableData]);
+  }, [selectedTable, activeConnectionId, isMongo, page, sortCol, sortDir, loadTableData]);
 
   // A4 — MongoDB insert document (JSON)
   const handleInsertDocument = useCallback(async (jsonDoc: string) => {
