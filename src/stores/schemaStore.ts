@@ -10,6 +10,7 @@ interface SchemaStore {
   tables: TableInfo[];
   selectedTable: string | null;
   loading: boolean;
+  error: string | null;
 
   // Table details
   columns: ColumnInfo[];
@@ -43,6 +44,7 @@ interface SchemaStore {
   setTableIndexes: (ti: Record<string, IndexInfo[]>) => void;
   setTableForeignKeys: (tfk: Record<string, ForeignKeyInfo[]>) => void;
   setTableCount: (table: string, count: number) => void;
+  setError: (error: string | null) => void;
   reset: () => void;
 }
 
@@ -55,6 +57,7 @@ export const useSchemaStore = create<SchemaStore>((set) => ({
   tables: [],
   selectedTable: null,
   loading: false,
+  error: null,
 
   // Table details
   columns: [],
@@ -88,6 +91,7 @@ export const useSchemaStore = create<SchemaStore>((set) => ({
   setTableIndexes: (tableIndexes) => set({ tableIndexes }),
   setTableForeignKeys: (tableForeignKeys) => set({ tableForeignKeys }),
   setTableCount: (table, count) => set(s => ({ tableCounts: { ...s.tableCounts, [table]: count } })),
+  setError: (error) => set({ error }),
   reset: () => set({
     databases: [],
     selectedDatabase: null,
@@ -96,6 +100,7 @@ export const useSchemaStore = create<SchemaStore>((set) => ({
     tables: [],
     selectedTable: null,
     loading: false,
+    error: null,
     columns: [],
     columnsLoading: false,
     indexes: [],
