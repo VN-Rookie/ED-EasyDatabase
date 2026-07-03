@@ -88,3 +88,9 @@ pub struct DeleteRowInput {
     pub pk_column: String,
     pub pk_value: serde_json::Value,
 }
+
+/// Result for execute operations (INSERT/UPDATE/DELETE/DDL)
+#[derive(Serialize)]
+pub struct ExecResult {
+    pub rows_affected: u64,
+}
