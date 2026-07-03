@@ -7,7 +7,7 @@ use async_trait::async_trait;
 
 use crate::db;
 use crate::error::AppError;
-use crate::model::{ColumnInfo, ConnectionConfig, DeleteRowInput, ForeignKeyInfo, IndexInfo, InsertRowInput, QueryResult, SchemaInfo, TableInfo, UpdateRowInput};
+use crate::model::{ColumnInfo, ConnectionConfig, DeleteDocumentInput, DeleteRowInput, ForeignKeyInfo, IndexInfo, InsertDocumentInput, InsertRowInput, QueryResult, ReplaceDocumentInput, SchemaInfo, TableInfo, UpdateDocumentInput, UpdateRowInput};
 
 #[async_trait]
 pub trait Driver: Send + Sync {
@@ -40,6 +40,26 @@ pub trait Driver: Send + Sync {
     /// Delete a row by primary key. Default: unsupported.
     async fn delete_row(&self, _input: DeleteRowInput) -> Result<QueryResult, AppError> {
         Err(AppError::new("delete_row is not supported for this engine"))
+    }
+
+    /// Insert a document into a collection (MongoDB only). Default: unsupported.
+    async fn insert_document(&self, _input: InsertDocumentInput) -> Result<QueryResult, AppError> {
+        Err(AppError::new("insert_document is not supported for this engine"))
+    }
+
+    /// Update documents in a collection (MongoDB only). Default: unsupported.
+    async fn update_documents(&self, _input: UpdateDocumentInput) -> Result<QueryResult, AppError> {
+        Err(AppError::new("update_documents is not supported for this engine"))
+    }
+
+    /// Delete documents from a collection (MongoDB only). Default: unsupported.
+    async fn delete_documents(&self, _input: DeleteDocumentInput) -> Result<QueryResult, AppError> {
+        Err(AppError::new("delete_documents is not supported for this engine"))
+    }
+
+    /// Replace a document in a collection (MongoDB only). Default: unsupported.
+    async fn replace_document(&self, _input: ReplaceDocumentInput) -> Result<QueryResult, AppError> {
+        Err(AppError::new("replace_document is not supported for this engine"))
     }
 }
 
