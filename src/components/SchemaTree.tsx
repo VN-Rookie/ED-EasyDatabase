@@ -27,6 +27,7 @@ export function SchemaTree() {
     tables,
     selectedTable,
     loading,
+    error,
     tableCounts,
     tableColumns,
     tableIndexes,
@@ -244,6 +245,17 @@ export function SchemaTree() {
                 <X size={9} />
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Error state */}
+      {error && (
+        <div className="px-2 pb-2">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+            <span className="text-[11px] text-red-400 break-words">
+              {error}
+            </span>
           </div>
         </div>
       )}
