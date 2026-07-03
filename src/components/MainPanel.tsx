@@ -13,23 +13,7 @@ import { SavedQueriesPanel } from "./SavedQueriesPanel";
 import { FilterBar } from "./FilterBar";
 import { DocumentView } from "./DocumentView";
 import { IndexView } from "./IndexView";
-import type { QueryResult } from "../types";
 import { insertRow, updateRow, deleteRow } from "../features/object-view/editApi";
-
-function ident(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
-function toSqlLiteral(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed === "" || trimmed.toLowerCase() === "null") return "NULL";
-  return `'${trimmed.replace(/'/g, "''")}'`;
-}
-function pkToLiteral(pkRaw: unknown): string {
-  if (pkRaw === null || pkRaw === undefined) return "NULL";
-  if (typeof pkRaw === "number") return String(pkRaw);
-  if (typeof pkRaw === "boolean") return pkRaw ? "TRUE" : "FALSE";
-  return `'${String(pkRaw).replace(/'/g, "''")}'`;
-}
 /** Convert a user-typed string into a JSON value for MongoDB $set.
  *  Tries boolean → null → number → JSON object/array → plain string. */
 function mongoEncodeValue(raw: string): string {
