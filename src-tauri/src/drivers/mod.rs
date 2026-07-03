@@ -7,7 +7,7 @@ use async_trait::async_trait;
 
 use crate::db;
 use crate::error::AppError;
-use crate::model::{ColumnInfo, ConnectionConfig, ForeignKeyInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo};
+use crate::model::{ColumnInfo, ConnectionConfig, DeleteRowInput, ForeignKeyInfo, IndexInfo, InsertRowInput, QueryResult, SchemaInfo, TableInfo, UpdateRowInput};
 
 #[async_trait]
 pub trait Driver: Send + Sync {
@@ -25,6 +25,21 @@ pub trait Driver: Send + Sync {
     /// MongoDB only: switch the browsed database. Default: unsupported.
     async fn set_database(&self, _db: &str) -> Result<(), AppError> {
         Err(AppError::new("set_database is not supported for this engine"))
+    }
+
+    /// Insert a new row into a table. Default: unsupported.
+    async fn insert_row(&self, _input: InsertRowInput) -> Result<QueryResult, AppError> {
+        Err(AppError::new("insert_row is not supported for this engine"))
+    }
+
+    /// Update an existing row by primary key. Default: unsupported.
+    async fn update_row(&self, _input: UpdateRowInput) -> Result<QueryResult, AppError> {
+        Err(AppError::new("update_row is not supported for this engine"))
+    }
+
+    /// Delete a row by primary key. Default: unsupported.
+    async fn delete_row(&self, _input: DeleteRowInput) -> Result<QueryResult, AppError> {
+        Err(AppError::new("delete_row is not supported for this engine"))
     }
 }
 
