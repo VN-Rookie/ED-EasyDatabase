@@ -15,15 +15,18 @@ const mockGetCellValue = vi.fn();
 const mockIsDirty = vi.fn();
 const mockUpdateDirtyValue = vi.fn();
 
+const createMockStore = (overrides?: Record<string, unknown>) => ({
+  editingCell: null,
+  startEditing: mockStartEditing,
+  stopEditing: mockStopEditing,
+  getCellValue: mockGetCellValue,
+  isDirty: mockIsDirty,
+  updateDirtyValue: mockUpdateDirtyValue,
+  ...overrides,
+});
+
 vi.mock("./dataGridStore", () => ({
-  useDataGridStore: vi.fn(() => ({
-    editingCell: null,
-    startEditing: mockStartEditing,
-    stopEditing: mockStopEditing,
-    getCellValue: mockGetCellValue,
-    isDirty: mockIsDirty,
-    updateDirtyValue: mockUpdateDirtyValue,
-  })),
+  useDataGridStore: vi.fn(() => createMockStore()),
 }));
 
 describe("DataGridCell", () => {
@@ -32,6 +35,7 @@ describe("DataGridCell", () => {
     // Default mock implementations
     mockGetCellValue.mockImplementation((_rowIndex: number, _column: string, value: unknown) => value);
     mockIsDirty.mockReturnValue(false);
+    (useDataGridStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue(createMockStore());
   });
 
   afterEach(() => {
@@ -82,14 +86,9 @@ describe("DataGridCell", () => {
     it("shows Textarea for values > 50 chars", async () => {
       const longValue = "a".repeat(51); // 51 characters, more than 50
       mockGetCellValue.mockReturnValue(longValue);
-      (useDataGridStore as ReturnType<typeof vi.fn>).mockReturnValue({
-        editingCell: { rowIndex: 0, column: "test_column" },
-        startEditing: mockStartEditing,
-        stopEditing: mockStopEditing,
-        getCellValue: mockGetCellValue,
-        isDirty: mockIsDirty,
-        updateDirtyValue: mockUpdateDirtyValue,
-      });
+      (useDataGridStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+        createMockStore({ editingCell: { rowIndex: 0, column: "test_column" } })
+      );
 
       renderCell({ value: longValue });
 
@@ -104,14 +103,9 @@ describe("DataGridCell", () => {
     it("shows Textarea for values containing newlines", async () => {
       const valueWithNewline = "line1\nline2"; // contains newline
       mockGetCellValue.mockReturnValue(valueWithNewline);
-      (useDataGridStore as ReturnType<typeof vi.fn>).mockReturnValue({
-        editingCell: { rowIndex: 0, column: "test_column" },
-        startEditing: mockStartEditing,
-        stopEditing: mockStopEditing,
-        getCellValue: mockGetCellValue,
-        isDirty: mockIsDirty,
-        updateDirtyValue: mockUpdateDirtyValue,
-      });
+      (useDataGridStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+        createMockStore({ editingCell: { rowIndex: 0, column: "test_column" } })
+      );
 
       renderCell({ value: valueWithNewline });
 
@@ -124,14 +118,9 @@ describe("DataGridCell", () => {
     it("shows Input for values at exactly 50 chars (boundary)", async () => {
       const boundaryValue = "a".repeat(50); // exactly 50 chars
       mockGetCellValue.mockReturnValue(boundaryValue);
-      (useDataGridStore as ReturnType<typeof vi.fn>).mockReturnValue({
-        editingCell: { rowIndex: 0, column: "test_column" },
-        startEditing: mockStartEditing,
-        stopEditing: mockStopEditing,
-        getCellValue: mockGetCellValue,
-        isDirty: mockIsDirty,
-        updateDirtyValue: mockUpdateDirtyValue,
-      });
+      (useDataGridStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+        createMockStore({ editingCell: { rowIndex: 0, column: "test_column" } })
+      );
 
       renderCell({ value: boundaryValue });
 
@@ -147,14 +136,9 @@ describe("DataGridCell", () => {
     it("switches to Textarea when typing makes value exceed 50 chars", async () => {
       const initialValue = "a".repeat(30); // starts with short value
       mockGetCellValue.mockReturnValue(initialValue);
-      (useDataGridStore as ReturnType<typeof vi.fn>).mockReturnValue({
-        editingCell: { rowIndex: 0, column: "test_column" },
-        startEditing: mockStartEditing,
-        stopEditing: mockStopEditing,
-        getCellValue: mockGetCellValue,
-        isDirty: mockIsDirty,
-        updateDirtyValue: mockUpdateDirtyValue,
-      });
+      (useDataGridStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+        createMockStore({ editingCell: { rowIndex: 0, column: "test_column" } })
+      );
 
       renderCell({ value: initialValue });
 
@@ -178,14 +162,9 @@ describe("DataGridCell", () => {
     it("dynamically calculates rows based on content length", async () => {
       const longValue = "a".repeat(200); // 200 chars
       mockGetCellValue.mockReturnValue(longValue);
-      (useDataGridStore as ReturnType<typeof vi.fn>).mockReturnValue({
-        editingCell: { rowIndex: 0, column: "test_column" },
-        startEditing: mockStartEditing,
-        stopEditing: mockStopEditing,
-        getCellValue: mockGetCellValue,
-        isDirty: mockIsDirty,
-        updateDirtyValue: mockUpdateDirtyValue,
-      });
+      (useDataGridStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+        createMockStore({ editingCell: { rowIndex: 0, column: "test_column" } })
+      );
 
       renderCell({ value: longValue });
 
@@ -200,14 +179,9 @@ describe("DataGridCell", () => {
     it("caps rows at maximum of 10", async () => {
       const veryLongValue = "a".repeat(500); // 500 chars
       mockGetCellValue.mockReturnValue(veryLongValue);
-      (useDataGridStore as ReturnType<typeof vi.fn>).mockReturnValue({
-        editingCell: { rowIndex: 0, column: "test_column" },
-        startEditing: mockStartEditing,
-        stopEditing: mockStopEditing,
-        getCellValue: mockGetCellValue,
-        isDirty: mockIsDirty,
-        updateDirtyValue: mockUpdateDirtyValue,
-      });
+      (useDataGridStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+        createMockStore({ editingCell: { rowIndex: 0, column: "test_column" } })
+      );
 
       renderCell({ value: veryLongValue });
 
@@ -319,14 +293,9 @@ describe("DataGridCell", () => {
       const onSave = vi.fn();
       const value = "test";
       mockGetCellValue.mockReturnValue(value);
-      (useDataGridStore as ReturnType<typeof vi.fn>).mockReturnValue({
-        editingCell: { rowIndex: 0, column: "test_column" },
-        startEditing: mockStartEditing,
-        stopEditing: mockStopEditing,
-        getCellValue: mockGetCellValue,
-        isDirty: mockIsDirty,
-        updateDirtyValue: mockUpdateDirtyValue,
-      });
+      (useDataGridStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+        createMockStore({ editingCell: { rowIndex: 0, column: "test_column" } })
+      );
 
       renderCell({ value, onSave });
 
@@ -347,14 +316,9 @@ describe("DataGridCell", () => {
     it("cancels on Escape key press", async () => {
       const value = "test";
       mockGetCellValue.mockReturnValue(value);
-      (useDataGridStore as ReturnType<typeof vi.fn>).mockReturnValue({
-        editingCell: { rowIndex: 0, column: "test_column" },
-        startEditing: mockStartEditing,
-        stopEditing: mockStopEditing,
-        getCellValue: mockGetCellValue,
-        isDirty: mockIsDirty,
-        updateDirtyValue: mockUpdateDirtyValue,
-      });
+      (useDataGridStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+        createMockStore({ editingCell: { rowIndex: 0, column: "test_column" } })
+      );
 
       renderCell({ value });
 
