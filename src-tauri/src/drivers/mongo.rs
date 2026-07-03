@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 use crate::drivers::Driver;
 use crate::error::AppError;
-use crate::model::{ColumnInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo};
+use crate::model::{ColumnInfo, ConnectionConfig, IndexInfo, QueryResult, SchemaInfo, TableInfo};
 
 pub struct MongoDriver {
     client: mongodb::Client,
@@ -249,5 +249,76 @@ impl Driver for MongoDriver {
         }).collect();
 
         Ok(QueryResult { columns, rows, rows_affected: None })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+    use crate::drivers::Driver;
+
+    fn mongo_config() -> ConnectionConfig {
+        ConnectionConfig {
+            id: "test-mongo".into(),
+            name: "Test Mongo".into(),
+            db_type: "mongodb".into(),
+            host: "localhost".into(),
+            port: 27017,
+            database: "test".into(),
+            username: String::new(),
+            password: String::new(),
+            connection_string: "mongodb://localhost:27017".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn mongo_live_connection() {
+        if std::env::var("TOOLSQL_TEST_MONGO").is_err() {
+            eprintln!("SKIP mongo_live_connection (set TOOLSQL_TEST_MONGO=1 to run)");
+            return;
+        }
+
+        let config = mongo_config();
+        let client = db::connect_mongo(&config.connection_string)
+            .await
+            .expect("connect_mongo failed");
+        let driver = MongoDriver::new(client, config.database.clone());
+
+        // ping
+        driver.ping().await.expect("ping failed");
+        eprintln!("[OK] ping               -> healthy");
+
+        // list_databases
+        let dbs = driver.list_databases().await.expect("list_databases failed");
+        eprintln!("[OK] list_databases     -> {} entries", dbs.len());
+
+        // list_schemas
+        let schemas = driver.list_schemas().await.expect("list_schemas failed");
+        eprintln!("[OK] list_schemas      -> {} entries", schemas.len());
+
+        // set_database and list_tables
+        if !dbs.is_empty() {
+            driver.set_database(&dbs[0]).await.expect("set_database failed");
+            eprintln!("[OK] set_database      -> switched to {}", dbs[0]);
+
+            let tables = driver.list_tables().await.expect("list_tables failed");
+            eprintln!("[OK] list_tables      -> {} collections", tables.len());
+
+            if !tables.is_empty() {
+                let first_table = &tables[0].name;
+                eprintln!("[OK] Testing collection: {}", first_table);
+
+                // describe_table
+                let columns = driver.describe_table(first_table).await.expect("describe_table failed");
+                eprintln!("[OK] describe_table    -> {} columns", columns.len());
+
+                // list_indexes
+                let indexes = driver.list_indexes(first_table).await.expect("list_indexes failed");
+                eprintln!("[OK] list_indexes     -> {} indexes", indexes.len());
+            }
+        }
+
+        eprintln!("[OK] All MongoDB tests passed!");
     }
 }
