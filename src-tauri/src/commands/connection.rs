@@ -10,6 +10,26 @@ use crate::{
     state::{AppState, ConnectionHandle},
 };
 
+fn save_password(id: &str, password: &str) {
+    if let Ok(entry) = keyring::Entry::new("easydatabase", id) {
+        let _ = entry.set_password(password);
+    }
+}
+
+fn get_password(id: &str) -> Option<String> {
+    if let Ok(entry) = keyring::Entry::new("easydatabase", id) {
+        entry.get_password().ok()
+    } else {
+        None
+    }
+}
+
+fn delete_password(id: &str) {
+    if let Ok(entry) = keyring::Entry::new("easydatabase", id) {
+        let _ = entry.delete_credential();
+    }
+}
+
 fn config_path() -> Result<PathBuf, AppError> {
     // Allow test override via environment variable
     let dir = if let Ok(custom_dir) = std::env::var("TOOLSQL_TEST_CONFIG_DIR") {
@@ -17,7 +37,7 @@ fn config_path() -> Result<PathBuf, AppError> {
     } else {
         dirs::config_dir()
             .ok_or_else(|| AppError::new("Cannot determine config directory"))?
-            .join("tool-sql")
+            .join("easydatabase")
     };
     fs::create_dir_all(&dir).map_err(|e| AppError::new(e.to_string()))?;
     Ok(dir.join("connections.json"))
@@ -26,7 +46,7 @@ fn config_path() -> Result<PathBuf, AppError> {
 // --- Persist commands ---
 
 #[tauri::command]
-pub async fn save_connection(config: ConnectionConfig) -> Result<ConnectionConfig, AppError> {
+pub async fn save_connection(mut config: ConnectionConfig) -> Result<ConnectionConfig, AppError> {
     let path = config_path()?;
     let mut configs: Vec<ConnectionConfig> = if path.exists() {
         let raw = fs::read_to_string(&path).map_err(|e| AppError::new(e.to_string()))?;
@@ -34,6 +54,13 @@ pub async fn save_connection(config: ConnectionConfig) -> Result<ConnectionConfi
     } else {
         vec![]
     };
+
+    // Extract password and store it in keyring if it's not empty and not the placeholder
+    let raw_pwd = config.password.clone();
+    if !raw_pwd.is_empty() && raw_pwd != "KEYCHAIN_STORED" {
+        save_password(&config.id, &raw_pwd);
+        config.password = "KEYCHAIN_STORED".to_string();
+    }
 
     // Upsert by id
     if let Some(existing) = configs.iter_mut().find(|c| c.id == config.id) {
@@ -44,6 +71,11 @@ pub async fn save_connection(config: ConnectionConfig) -> Result<ConnectionConfi
 
     let json = serde_json::to_string_pretty(&configs).map_err(|e| AppError::new(e.to_string()))?;
     fs::write(&path, json).map_err(|e| AppError::new(e.to_string()))?;
+
+    // Restore the password in the returned struct so the frontend has it
+    if config.password == "KEYCHAIN_STORED" {
+        config.password = raw_pwd;
+    }
     Ok(config)
 }
 
@@ -54,12 +86,23 @@ pub async fn load_saved_connections() -> Result<Vec<ConnectionConfig>, AppError>
         return Ok(vec![]);
     }
     let raw = fs::read_to_string(&path).map_err(|e| AppError::new(e.to_string()))?;
-    serde_json::from_str(&raw).map_err(|e| AppError::new(e.to_string()))
+    let mut configs: Vec<ConnectionConfig> = serde_json::from_str(&raw).map_err(|e| AppError::new(e.to_string()))?;
+
+    // Populate passwords from keyring
+    for config in &mut configs {
+        if config.password == "KEYCHAIN_STORED" {
+            if let Some(pwd) = get_password(&config.id) {
+                config.password = pwd;
+            }
+        }
+    }
+    Ok(configs)
 }
 
 #[tauri::command]
 pub async fn delete_saved_connection(id: String) -> Result<(), AppError> {
     let path = config_path()?;
+    delete_password(&id);
     if !path.exists() {
         return Ok(());
     }
