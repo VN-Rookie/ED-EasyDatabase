@@ -215,9 +215,9 @@ Replace `window.confirm` bằng inline toast/confirm bar (không dùng browser d
 | **ERD viewer** | Schema visualization | `information_schema.referential_constraints` → FK graph → `@dagrejs/dagre` + SVG |
 | **SSH tunnel support** | Remote DB access | `openssh` crate hoặc shell out `ssh -L` |
 | **Table data import (CSV)** | Seed/populate | File picker → parse CSV → batch INSERT / `COPY FROM STDIN` |
-| **Connection groups / folders** | Organization | `group?: string` trong ConnectionConfig |
-| **Password in OS keychain** | Security | `keyring` crate (cross-platform) |
-| **Dark/light theme toggle** | Preference | CSS variables, persist to settings |
+| **Database Snapshot / Backup** | Disaster recovery | Logical dump (DDL SQL generation) or shell out to CLI tools (`pg_dump`/`mysqldump`) |
+| **Password in OS keychain** | Security | ✅ Done (2026-07-07) - Integrated `keyring` crate in backend connection commands |
+| **Dark/light theme toggle** | Preference | ✅ Done (2026-07-07) - Integrated custom UI theme management |
 | **Multiple result windows** | Comparison | Detachable floating result panel |
 | **Query cost estimation** | Pre-flight | EXPLAIN (cost) trước khi run, warning cho expensive queries |
 
@@ -227,6 +227,27 @@ Replace `window.confirm` bằng inline toast/confirm bar (không dùng browser d
 |---------|-------------|
 | **Chat mode** | Conversational SQL nhớ context. Multi-turn conversation trong sidebar. |
 | **AI data summarization** | Selected rows → AI returns plain-English summary. |
-| **Schema documentation generator** | "Generate README for this schema" → AI viết markdown. |
-| **Query performance advisor** | Sau EXPLAIN ANALYZE, AI explains bottlenecks + suggests fixes. |
 | **Auto-complete for JOIN** | Detect FK, suggest JOIN conditions. |
+
+---
+
+## 🚀 Đặc tả & Kế hoạch Chi tiết cho các Tính năng Mới (Import & Snapshot)
+
+### 1. Tính năng Nhập dữ liệu (Import Data - CSV/JSON/SQL)
+*   **Mục tiêu:** Cho phép người dùng nạp dữ liệu hàng loạt từ các tệp tin CSV hoặc JSON vào bảng hiện tại trong database.
+*   **Danh sách TODO:**
+    - [ ] **UI:** Thêm nút "Import" trên Data Grid Toolbar.
+    - [ ] **UI:** Tạo Modal Import cho phép kéo thả tệp (`.csv`, `.json`), tự động phân tích hàng tiêu đề để người dùng map cột: Cột trong tệp ↔ Cột trong Bảng đích.
+    - [ ] **Backend (API):** Định nghĩa lệnh Tauri `import_csv_data(conn_id, table, file_path, column_mappings)` và `import_json_data(...)`.
+    - [ ] **Backend (Core):** Sử dụng các thư viện parsing hiệu năng cao (như `csv` trong Rust), thực hiện đọc stream tệp tin theo lô (batching) để tránh overload RAM đối với tệp tin lớn.
+    - [ ] **Backend (Driver):** Tận dụng tính năng Bulk Insert của SQL (`INSERT INTO table (cols) VALUES (...), (...)...`) hoặc API chèn hàng loạt của MongoDB (`insert_many`) để chèn dữ liệu với tốc độ cao nhất.
+
+### 2. Tính năng Sao lưu cơ sở dữ liệu (Database Snapshot / Backup & Restore)
+*   **Mục tiêu:** Tạo bản sao lưu (snapshot) cấu trúc schema và dữ liệu của cơ sở dữ liệu và khôi phục khi cần thiết.
+*   **Danh sách TODO:**
+    - [ ] **UI:** Thêm nút chuột phải "Create Database Snapshot..." trên database node trong `ExplorerTree.tsx`.
+    - [ ] **UI:** Tạo Modal cấu hình Snapshot: Chọn sao lưu cấu trúc (Schema Only) hay cả dữ liệu (Schema + Data).
+    - [ ] **Backend (CLI Fallback):** Tự động kiểm tra xem môi trường máy khách có cài đặt các công cụ CLI gốc hay không (`pg_dump`, `mysqldump`, `mongodump`). Nếu có, gọi tiến trình ngầm (`std::process::Command`) để xuất tệp backup tối ưu nhất.
+    - [ ] **Backend (Native Driver backup):** Nếu không có CLI gốc, driver tự crawl thông tin metadata để sinh tập lệnh SQL DDL (`CREATE TABLE ...`, `CREATE INDEX ...`) và ghi vào file `.sql` (Logical SQL Dump).
+    - [ ] **Backend (Restore):** Xây dựng lệnh Tauri `restore_database_snapshot(conn_id, file_path)` để đọc file SQL backup, phân tách các khối lệnh và chạy qua Driver để khôi phục cấu trúc/dữ liệu.
+

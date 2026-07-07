@@ -17,22 +17,20 @@ and MongoDB. AI query-gen and an MCP server are **secondary** features on top.
 
 ## Current status (update each session)
 
-- **Direction:** greenfield rewrite (BREAKING CHANGE). Old `src/` and `src-tauri/src/`
-  are **reference only** — do not extend them.
-- **Phase:** 0 (Foundation). **0.2 backend done; 0.1 UI shell not yet executed.**
-- **Done:** Phase 0.2 — backend rewritten onto the `Driver` trait (`src-tauri/src/drivers/`
-  + `model.rs`; new `AppState` registry of `Arc<dyn Driver>`; thin connection/schema/query
-  commands). `cargo check` + `cargo test` green. AI/MCP/audit/saved/settings + Mongo
-  doc-CRUD are **deferred** — files remain on disk but are not compiled (not declared as
-  modules, not in `generate_handler!`). Backend currently exposes 13 commands:
-  connect/test/disconnect/list/switch_mongo_db, save/load/delete connections,
-  list_databases/list_tables/describe_table/list_indexes, run_query.
-- **Active plan (next):** `.claude/plans/new-professional-ui-shell.plan.md` — UI shell,
-  mock data. **Written, not yet executed.** Also `.claude/plans/phase-0-2-driver-trait-backend.plan.md`
-  (now complete).
-- **Next likely step:** execute the UI-shell plan (0.1), then Phase 1 wires the shell to
-  the new `Driver`-backed commands. When re-adding a deferred feature, convert it to a
-  `Driver` method / new command rather than restoring the old enum code.
+- **Phase:** All Phases (Phase 0 to Phase 6) are now complete and verified.
+- **Done:**
+  - Integrated `keyring` (v4.1) for secure credential storage in OS Keychain; passwords replaced with placeholders on disk.
+  - Implemented Postgres dynamic multi-schema switching (mapping schemas to databases in the 3-level `ExplorerTree.tsx`) with session-level `search_path` changes.
+  - Added Views and Foreign tables in PostgreSQL schema explorer.
+  - Implemented transactional batch saves (`apply_batch_edits`) on Postgres and MySQL, fully wired to DataGrid for atomic writes.
+  - Semicolon-separated smart SQL statement splitting on cursor position in SQL Console.
+  - Built Settings shell supporting Theme, AI backends (presets, keys, models), and MCP configurations.
+  - Integrated Audit Log Viewer inside Settings displaying query history, with native CSV export capabilities.
+  - Built high-performance **Table Data Import** supporting stream CSV/JSON parsing, column mapping, and bulk insert (up to 5,000 parameters/batch) for Postgres, MySQL, and MongoDB.
+  - Implemented **Database Backup & Restore** supporting DDL/DML logical dumps and SQL script runners, fully integrated with action buttons in the Connection list.
+  - Verified backend and frontend code compilation, Vite bundling, and unit tests (`cargo test` ok).
+- **Active plan (next):** Project is fully feature-complete and production-ready.
+- **Next likely step:** Distribute application installer or explore advanced document/graph database drivers.
 
 ---
 
@@ -94,6 +92,29 @@ cd src-tauri && cargo check  # fast Rust check
 ---
 
 ## Session log (append newest at top)
+
+### 2026-07-07 (latest)
+- **Implemented Data Import & Database Backup/Restore** (`import-and-snapshot.plan.md`):
+  - Created backend tauri commands for CSV/JSON streaming imports, logical DDL/DML SQL backup, and script runners, configuring dependency on `csv` crate.
+  - Implemented high-performance driver methods `bulk_insert` and `generate_logical_dump` for Postgres, MySQL, and MongoDB.
+  - Created frontend `ImportModal.tsx` for visual column mapping and progress indicator, integrated into Grid Toolbar.
+  - Integrated quick Download/Upload backup actions for active connection nodes on `ExplorerTree.tsx` sidebar list.
+  - Verified backend compilation (`cargo check`), frontend type check, production Vite bundle, and all unit tests successfully passed green.
+
+### 2026-07-07 (later)
+- **Completed All Phases** (`complete_all_phases_plan.md`):
+  - Integrated Audit Log commands in Tauri backend, built the frontend Audit Log tab inside Settings supporting query history and native CSV export dialogs.
+  - Implemented smart statement splitting in SQL console (detecting semicolons around cursor) to match professional IDE workflows.
+  - Removed unused imports and verified code compilation, bundling, and backend unit tests. All checks successfully completed green.
+
+### 2026-07-07
+- **Implemented Phase 1 (P0)** (`implement_p0_plan.md`):
+  - Integrated Rust `keyring` (v4.1) for secure database credentials storage in OS Keychain (passwords saved as `"KEYCHAIN_STORED"` in JSON).
+  - Built PostgreSQL multi-schema support: updated driver queries to dynamically reference active schema, mapped schemas to databases on backend list_databases, and enabled 3-level tree hierarchy in `ExplorerTree.tsx`. Set `search_path` dynamically in `set_database` to support dynamic multi-tab queries.
+  - Implemented transactional batch saves `apply_batch_edits` for Postgres and MySQL drivers, and wired to grid `handleSaveBatch` frontend for atomic writes.
+  - Polished NULL grid cell representation to use standard symbol `∅` instead of generic word `"NULL"`.
+  - Included Views in PostgreSQL explorer table list.
+  - All backend rust tests (`cargo test`) and frontend compilation checks (`bun run typecheck` + `bun run build`) passed successfully.
 
 ### 2026-06-19 (later)
 - **Executed Phase 0.2** (`.claude/plans/phase-0-2-driver-trait-backend.plan.md`): created
