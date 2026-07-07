@@ -5,3 +5,5 @@ pub mod edit;
 pub mod settings;
 pub mod ai;
 pub mod saved_queries;
+pub mod audit;
+pub mod backup_import;
