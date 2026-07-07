@@ -4,7 +4,7 @@ use sqlx::{Column, Row};
 
 use crate::drivers::{is_select, Driver};
 use crate::error::AppError;
-use crate::model::{ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo};
+use crate::model::{ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo, BatchEditInput};
 
 pub struct MysqlDriver {
     pub pool: sqlx::MySqlPool,
@@ -19,6 +19,13 @@ impl Driver for MysqlDriver {
 
     async fn list_databases(&self) -> Result<Vec<String>, AppError> {
         Ok(vec![])
+    }
+
+    async fn count_rows(&self, table: &str) -> Result<u64, AppError> {
+        let (count,): (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM {table}"))
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count.max(0) as u64)
     }
 
     async fn list_schemas(&self) -> Result<Vec<SchemaInfo>, AppError> {
@@ -203,6 +210,172 @@ impl Driver for MysqlDriver {
             rows: vec![],
             rows_affected: Some(result.rows_affected()),
         })
+    }
+
+    async fn apply_batch_edits(&self, input: BatchEditInput) -> Result<QueryResult, AppError> {
+        let mut tx = self.pool.begin().await?;
+        let mut total_affected = 0;
+
+        let table_quoted = format!("`{}`", input.table.replace('`', "``"));
+
+        for upd in input.updates {
+            let set_clauses: Vec<String> = upd.values.keys()
+                .filter_map(|col| upd.values.get(col).map(|v| format!("`{}` = {}", col.replace('`', "``"), json_to_sql_literal(v))))
+                .collect();
+            let set_list = set_clauses.join(", ");
+            let pk_literal = json_to_sql_literal(&upd.pk_value);
+            let sql = format!("UPDATE {} SET {} WHERE `{}` = {}", table_quoted, set_list, upd.pk_column.replace('`', "``"), pk_literal);
+            let r = sqlx::query(&sql).execute(&mut *tx).await?;
+            total_affected += r.rows_affected();
+        }
+
+        for ins in input.inserts {
+            if ins.values.is_empty() { continue; }
+            let columns: Vec<String> = ins.values.keys().cloned().collect();
+            let column_list = columns.iter().map(|c| format!("`{}`", c.replace('`', "``"))).collect::<Vec<_>>().join(", ");
+            let values_list: Vec<String> = columns.iter()
+                .filter_map(|col| ins.values.get(col).map(|v| json_to_sql_literal(v)))
+                .collect();
+            let value_list = values_list.join(", ");
+            let sql = format!("INSERT INTO {} ({}) VALUES ({})", table_quoted, column_list, value_list);
+            let r = sqlx::query(&sql).execute(&mut *tx).await?;
+            total_affected += r.rows_affected();
+        }
+
+        for del in input.deletes {
+            let pk_literal = json_to_sql_literal(&del.pk_value);
+            let sql = format!("DELETE FROM {} WHERE `{}` = {}", table_quoted, del.pk_column.replace('`', "``"), pk_literal);
+            let r = sqlx::query(&sql).execute(&mut *tx).await?;
+            total_affected += r.rows_affected();
+        }
+
+        tx.commit().await?;
+
+        Ok(QueryResult {
+            columns: vec![],
+            rows: vec![],
+            rows_affected: Some(total_affected),
+        })
+    }
+
+    async fn bulk_insert(
+        &self,
+        table: &str,
+        columns: &[String],
+        rows: Vec<Vec<serde_json::Value>>,
+    ) -> Result<(), AppError> {
+        if rows.is_empty() || columns.is_empty() {
+            return Ok(());
+        }
+
+        let table_quoted = format!("`{}`", table.replace('`', "``"));
+        let col_list = columns.iter().map(|c| format!("`{}`", c.replace('`', "``"))).collect::<Vec<_>>().join(", ");
+
+        let mut tx = self.pool.begin().await?;
+
+        let params_per_row = columns.len();
+        let max_rows_per_batch = 5000 / params_per_row;
+        let max_rows_per_batch = std::cmp::max(1, max_rows_per_batch);
+
+        for chunk in rows.chunks(max_rows_per_batch) {
+            let mut sql = format!("INSERT INTO {} ({}) VALUES ", table_quoted, col_list);
+            let mut values_parts = Vec::new();
+
+            for _ in chunk {
+                let mut row_placeholder = Vec::new();
+                for _ in 0..params_per_row {
+                    row_placeholder.push("?");
+                }
+                values_parts.push(format!("({})", row_placeholder.join(", ")));
+            }
+            sql.push_str(&values_parts.join(", "));
+
+            let mut query = sqlx::query(&sql);
+            for row in chunk {
+                for val in row {
+                    match val {
+                        serde_json::Value::Null => {
+                            query = query.bind(None::<String>);
+                        }
+                        serde_json::Value::Bool(b) => {
+                            query = query.bind(*b);
+                        }
+                        serde_json::Value::Number(n) => {
+                            if let Some(i) = n.as_i64() {
+                                query = query.bind(i);
+                            } else if let Some(f) = n.as_f64() {
+                                query = query.bind(f);
+                            } else {
+                                query = query.bind(n.to_string());
+                            }
+                        }
+                        serde_json::Value::String(s) => {
+                            query = query.bind(s.clone());
+                        }
+                        serde_json::Value::Array(a) => {
+                            query = query.bind(serde_json::to_string(a).unwrap_or_default());
+                        }
+                        serde_json::Value::Object(o) => {
+                            query = query.bind(serde_json::to_string(o).unwrap_or_default());
+                        }
+                    }
+                }
+            }
+
+            query.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn generate_logical_dump(&self) -> Result<String, AppError> {
+        let mut dump = String::new();
+        dump.push_str(&format!("-- EasyDatabase MySQL Logical Backup\n-- Date: {}\n\n", chrono::Utc::now()));
+
+        let tables = self.list_tables().await?;
+
+        for table_info in tables {
+            let table = &table_info.name;
+            let table_quoted = format!("`{}`", table.replace('`', "``"));
+
+            dump.push_str(&format!("-- Structure for table {}\n", table_quoted));
+
+            let ddl_res = self.run_query(&format!("SHOW CREATE TABLE {}", table_quoted)).await?;
+            if !ddl_res.rows.is_empty() && ddl_res.rows[0].get("Create Table").is_some() {
+                if let Some(create_sql) = ddl_res.rows[0]["Create Table"].as_str() {
+                    dump.push_str(create_sql);
+                    dump.push_str(";\n\n");
+                }
+            } else {
+                let columns = self.describe_table(table).await?;
+                let mut col_defs = Vec::new();
+                for col in &columns {
+                    let nullable_str = if col.nullable { "" } else { " NOT NULL" };
+                    let pk_str = if col.is_pk { " PRIMARY KEY" } else { "" };
+                    col_defs.push(format!("    `{}` {}{}{}", col.name.replace('`', "``"), col.data_type, nullable_str, pk_str));
+                }
+                dump.push_str(&format!("CREATE TABLE {} (\n{}\n);\n\n", table_quoted, col_defs.join(",\n")));
+            }
+
+            dump.push_str(&format!("-- Data for table {}\n", table_quoted));
+            let select_query = format!("SELECT * FROM {}", table_quoted);
+            let data = self.run_query(&select_query).await?;
+            if !data.rows.is_empty() && !data.columns.is_empty() {
+                let col_names = data.columns.iter().map(|c| format!("`{}`", c.replace('`', "``"))).collect::<Vec<_>>().join(", ");
+                for row in data.rows {
+                    let mut values = Vec::new();
+                    for col in &data.columns {
+                        let val = &row[col];
+                        values.push(json_to_sql_literal(val));
+                    }
+                    dump.push_str(&format!("INSERT INTO {} ({}) VALUES ({});\n", table_quoted, col_names, values.join(", ")));
+                }
+            }
+            dump.push_str("\n");
+        }
+
+        Ok(dump)
     }
 }
 
