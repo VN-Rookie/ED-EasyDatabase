@@ -88,7 +88,7 @@ export function SettingsPanel({ onClose }: Props) {
       const csv = await invoke<string>("export_audit_log");
       const a = Object.assign(document.createElement("a"), {
         href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })),
-        download: "tool-sql-audit.csv",
+        download: "easydatabase-audit.csv",
       });
       a.click();
     } catch { /* ignore */ }
@@ -290,7 +290,7 @@ export function SettingsPanel({ onClose }: Props) {
             <div className="rounded-lg bg-[#21262d]/50 border border-[#30363d]/50 px-3 py-2.5">
               <p className="text-[10px] text-[#7d8590] leading-relaxed">
                 🔒 <strong className="text-[#e6edf3]">Privacy:</strong> Only schema metadata (table/column names, types) is sent to the AI. Row data is never transmitted.
-                Keys stored in <code className="text-[#e6edf3]">~/.config/tool-sql/settings.json</code>.
+                Keys stored in <code className="text-[#e6edf3]">~/.config/easydatabase/settings.json</code>.
               </p>
             </div>
           </>}
@@ -299,7 +299,7 @@ export function SettingsPanel({ onClose }: Props) {
           {activeTab === "mcp" && <>
             <section className="space-y-4">
               <p className="text-xs text-[#7d8590]">
-                tool-sql exposes an MCP server so Claude Code and other AI agents can query your databases directly.
+                EasyDatabase exposes an MCP server so Claude Code and other AI agents can query your databases directly.
               </p>
               <Field label="Port">
                 <div className="flex items-center gap-3">
@@ -325,7 +325,7 @@ export function SettingsPanel({ onClose }: Props) {
               <pre className="bg-[#21262d] border border-[#30363d]/50 rounded-lg px-3.5 py-3 text-[11px] text-green-300 font-mono overflow-x-auto leading-relaxed">{`// ~/.claude/claude_desktop_config.json
 {
   "mcpServers": {
-    "tool-sql": {
+    "easydatabase": {
       "command": "nc",
       "args": ["localhost", "${form.mcp_port}"]
     }

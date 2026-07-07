@@ -21,6 +21,10 @@ export interface Settings {
   mcp_read_only: boolean;
   /** UI zoom scale: 0.85 | 1.0 | 1.15 | 1.3 */
   ui_scale: number;
+  system_font_size: number;
+  editor_font_size: number;
+  system_font_family: string;
+  editor_font_family: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -34,6 +38,10 @@ export const DEFAULT_SETTINGS: Settings = {
   mcp_port: 3456,
   mcp_read_only: true,
   ui_scale: 1.3,
+  system_font_size: 12,
+  editor_font_size: 14,
+  system_font_family: "",
+  editor_font_family: "",
 };
 
 /** Well-known OpenAI-compatible provider presets */
