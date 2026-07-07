@@ -11,6 +11,6 @@ interface ThemeState {
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({ pref: "system", setPref: (pref) => set({ pref }) }),
-    { name: "tool-sql:theme" },
+    { name: "easydatabase:theme" },
   ),
 );

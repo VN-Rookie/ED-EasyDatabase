@@ -1,12 +1,12 @@
 [package]
-name = "tool-sql"
+name = "easydatabase"
 version = "0.1.0"
 description = "Database GUI with AI and MCP"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "tool_sql_lib"
+name = "easydatabase_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

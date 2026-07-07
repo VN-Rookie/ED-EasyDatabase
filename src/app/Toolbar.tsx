@@ -19,7 +19,7 @@ export function Toolbar({ onNewConnection, onOpenSettings, onOpenPalette }: Tool
     <header className="h-12 flex-shrink-0 flex items-center gap-2 px-3 border-b border-border bg-surface/80 backdrop-blur">
       <div className="flex items-center gap-2 pr-2">
         <DatabaseZap size={16} className="text-accent" />
-        <span className="font-bold text-sm text-fg tracking-tight">tool-sql</span>
+        <span className="font-bold text-sm text-fg tracking-tight">EasyDatabase</span>
       </div>
       <div className="w-px h-5 bg-border" />
 

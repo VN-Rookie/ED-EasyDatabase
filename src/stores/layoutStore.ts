@@ -9,6 +9,6 @@ interface LayoutState {
 export const useLayoutStore = create<LayoutState>()(
   persist(
     (set) => ({ explorerWidth: 280, setExplorerWidth: (explorerWidth) => set({ explorerWidth }) }),
-    { name: "tool-sql:layout" },
+    { name: "easydatabase:layout" },
   ),
 );

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { QueryResult } from "../types";
 
-const HISTORY_KEY = "tool-sql:query-history";
+const HISTORY_KEY = "easydatabase:query-history";
 const MAX_HISTORY = 50;
 
 function loadHistory(): string[] {
