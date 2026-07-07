@@ -102,7 +102,7 @@ export function ConnectionForm({ initial, onClose }: Props) {
           <Field label="Name">
             <input required value={form.name} onChange={e => patch({ name: e.target.value })}
               placeholder={isMongo ? "Local MongoDB" : "Local Postgres"}
-              className={inputCls} />
+              className={inputCls} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
           </Field>
 
           {/* MongoDB fields */}
@@ -112,13 +112,13 @@ export function ConnectionForm({ initial, onClose }: Props) {
                 <input required value={form.connection_string}
                   onChange={e => patch({ connection_string: e.target.value })}
                   placeholder="mongodb://localhost:27017"
-                  className={`${inputCls} font-mono text-[12px]`} spellCheck={false} />
+                  className={`${inputCls} font-mono text-[12px]`} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
                 <p className="mt-1.5 text-[11px] text-[#7d8590]">Supports replica sets, TLS, SRV, and auth options</p>
               </Field>
               <Field label="Default Database (optional)">
                 <input value={form.database} onChange={e => patch({ database: e.target.value })}
                   placeholder="leave blank to browse all databases"
-                  className={inputCls} />
+                  className={inputCls} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
               </Field>
             </>
           ) : (
@@ -126,27 +126,27 @@ export function ConnectionForm({ initial, onClose }: Props) {
               <div className="flex gap-3">
                 <Field label="Host" className="flex-1">
                   <input required value={form.host} onChange={e => patch({ host: e.target.value })}
-                    placeholder="localhost" className={inputCls} />
+                    placeholder="localhost" className={inputCls} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
                 </Field>
                 <Field label="Port" className="w-24">
                   <input required type="number" value={form.port}
                     onChange={e => patch({ port: Number(e.target.value) })}
-                    className={inputCls} />
+                    className={inputCls} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
                 </Field>
               </div>
               <Field label="Database">
                 <input required value={form.database} onChange={e => patch({ database: e.target.value })}
-                  placeholder="myapp" className={inputCls} />
+                  placeholder="myapp" className={inputCls} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
               </Field>
               <div className="flex gap-3">
                 <Field label="Username" className="flex-1">
                   <input value={form.username} onChange={e => patch({ username: e.target.value })}
-                    placeholder="postgres" className={inputCls} />
+                    placeholder="postgres" className={inputCls} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
                 </Field>
                 <Field label="Password" className="flex-1">
                   <input type="password" value={form.password}
                     onChange={e => patch({ password: e.target.value })}
-                    placeholder="••••••••" className={inputCls} />
+                    placeholder="••••••••" className={inputCls} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
                 </Field>
               </div>
             </>

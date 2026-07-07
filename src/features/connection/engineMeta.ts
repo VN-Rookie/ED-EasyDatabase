@@ -35,4 +35,12 @@ export const ENGINE_META: Record<DbType, EngineMeta> = {
     border: "border-emerald-500/50",
     bg: "bg-emerald-500/10",
   },
+  redis: {
+    label: "Redis",
+    desc: "Key-Value Store",
+    icon: Database,
+    color: "text-red-400",
+    border: "border-red-500/50",
+    bg: "bg-red-500/10",
+  },
 };

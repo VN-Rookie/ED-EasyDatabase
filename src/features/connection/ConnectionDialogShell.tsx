@@ -13,7 +13,7 @@ interface ConnectionDialogShellProps {
   initial?: ConnectionConfig;
 }
 
-const ENGINE_IDS: DbType[] = ["postgres", "mysql", "mongodb"];
+const ENGINE_IDS: DbType[] = ["postgres", "mysql", "mongodb", "redis"];
 
 type TestState = "idle" | "testing" | "ok" | "fail";
 
@@ -97,7 +97,7 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
         <div className="px-6 py-5 space-y-5">
           <div>
             <label className={labelCls}>Database Type</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               {ENGINE_IDS.map((id) => {
                 const meta = ENGINE_META[id];
                 const Icon = meta.icon;
@@ -122,19 +122,19 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
 
           <div>
             <label className={labelCls}>Name</label>
-            <Input ref={nameInputRef} value={form.name} onChange={(e) => patch({ name: e.target.value })} placeholder="My connection" />
+            <Input ref={nameInputRef} value={form.name} onChange={(e) => patch({ name: e.target.value })} placeholder="My connection" autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
           </div>
 
           {isMongo ? (
             <div className="space-y-3">
               <div>
                 <label className={labelCls}>Connection String</label>
-                <Input value={form.connection_string} onChange={(e) => patch({ connection_string: e.target.value })} />
+                <Input value={form.connection_string} onChange={(e) => patch({ connection_string: e.target.value })} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
                 <p className="mt-1.5 text-[11px] text-muted">Supports replica sets, TLS, SRV, and auth options</p>
               </div>
               <div>
                 <label className={labelCls}>Database</label>
-                <Input value={form.database} onChange={(e) => patch({ database: e.target.value })} placeholder="test" />
+                <Input value={form.database} onChange={(e) => patch({ database: e.target.value })} placeholder="test" autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
               </div>
             </div>
           ) : (
@@ -142,25 +142,39 @@ export function ConnectionDialogShell({ onClose, initial }: ConnectionDialogShel
               <div className="flex gap-3">
                 <div className="flex-1">
                   <label className={labelCls}>Host</label>
-                  <Input value={form.host} onChange={(e) => patch({ host: e.target.value })} />
+                  <Input value={form.host} onChange={(e) => patch({ host: e.target.value })} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
                 </div>
                 <div className="w-24">
                   <label className={labelCls}>Port</label>
-                  <Input type="number" value={form.port} onChange={(e) => patch({ port: Number(e.target.value) })} />
+                  <Input type="number" value={form.port} onChange={(e) => patch({ port: Number(e.target.value) })} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
                 </div>
               </div>
               <div>
-                <label className={labelCls}>Database</label>
-                <Input value={form.database} onChange={(e) => patch({ database: e.target.value })} />
+                <label className={labelCls}>
+                  {form.db_type === "redis" ? "Database Index (0-15)" : "Database"}
+                </label>
+                <Input
+                  value={form.database}
+                  onChange={(e) => patch({ database: e.target.value })}
+                  placeholder={form.db_type === "redis" ? "0" : ""}
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                />
               </div>
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className={labelCls}>Username</label>
-                  <Input value={form.username} onChange={(e) => patch({ username: e.target.value })} />
+                  <label className={labelCls}>
+                    {form.db_type === "redis" ? "Username (optional)" : "Username"}
+                  </label>
+                  <Input value={form.username} onChange={(e) => patch({ username: e.target.value })} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
                 </div>
                 <div className="flex-1">
-                  <label className={labelCls}>Password</label>
-                  <Input type="password" value={form.password} onChange={(e) => patch({ password: e.target.value })} />
+                  <label className={labelCls}>
+                    {form.db_type === "redis" ? "Password / Token" : "Password"}
+                  </label>
+                  <Input type="password" value={form.password} onChange={(e) => patch({ password: e.target.value })} autoComplete="off" spellCheck={false} autoCorrect="off" autoCapitalize="off" />
                 </div>
               </div>
             </>
