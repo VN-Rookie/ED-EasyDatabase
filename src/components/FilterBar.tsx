@@ -130,6 +130,32 @@ export function FilterBar({ columns, columnMeta, filters, onChange, onApply, isM
     onChange(filters.map(f => f.id === id ? { ...f, ...patch } : f));
   const clear  = () => { onChange([]); onMongoFilterChange?.(""); setAiPrompt(""); };
 
+  const handleSelectSuggestion = (fieldName: string) => {
+    const input = mqlInputRef.current;
+    if (!input) return;
+    const start = input.selectionStart ?? 0;
+    const val = mongoFilter;
+
+    const lastWordMatch = val.slice(0, start).match(/[a-zA-Z0-9_]*$/);
+    const activeToken = lastWordMatch ? lastWordMatch[0] : "";
+
+    let tokenStart = start - activeToken.length;
+    if (tokenStart > 0 && (val[tokenStart - 1] === '"' || val[tokenStart - 1] === "'")) {
+      tokenStart -= 1;
+    }
+
+    const insertText = `"${fieldName}": `;
+    const newVal = val.slice(0, tokenStart) + insertText + val.slice(start);
+    onMongoFilterChange?.(newVal);
+
+    setShowSuggestions(false);
+    setTimeout(() => {
+      input.focus();
+      const newPos = tokenStart + insertText.length;
+      input.setSelectionRange(newPos, newPos);
+    }, 0);
+  };
+
   const handleAi = async () => {
     if (!aiPrompt.trim()) return;
     setAiLoading(true); setAiError(null);
@@ -169,13 +195,25 @@ export function FilterBar({ columns, columnMeta, filters, onChange, onApply, isM
   const hasMongoFilter  = mongoFilter.trim() !== "" && mongoFilter.trim() !== "{}";
   const hasFilters      = filters.length > 0 || hasMongoFilter;
 
+  // Calculate smart suggestions
+  const cursorPosition = mqlInputRef.current?.selectionStart ?? 0;
+  const textBeforeCursor = mongoFilter.slice(0, cursorPosition);
+  const lastSegment = textBeforeCursor.split(/[{,]/).pop() ?? "";
+  const isTypingValue = lastSegment.includes(":");
+  const lastWordMatch = textBeforeCursor.match(/[a-zA-Z0-9_]*$/);
+  const activeToken = lastWordMatch ? lastWordMatch[0].toLowerCase() : "";
+
+  const filteredSuggestions = !isTypingValue
+    ? fieldSuggestions.filter(f => f.name.toLowerCase().includes(activeToken))
+    : [];
+
   // ── MongoDB mode ──────────────────────────────────────────────────────────
   if (isMongo) {
     return (
-      <div className="shrink-0 border-b border-[#30363d] bg-[#0d1117]/40">
+      <div className="shrink-0 border-b border-border bg-surface/40">
         <div className="flex items-center gap-2 px-3 py-1.5">
-          <Filter size={10} className={hasMongoFilter ? "text-blue-400 shrink-0" : "text-[#484f58] shrink-0"} />
-
+          <Filter size={10} className={hasMongoFilter ? "text-blue-400 shrink-0" : "text-muted/60 shrink-0"} />
+ 
           {/* MQL input */}
           <div className="relative flex-1 min-w-0">
             <input
@@ -183,59 +221,81 @@ export function FilterBar({ columns, columnMeta, filters, onChange, onApply, isM
               value={mongoFilter}
               onChange={e => {
                 onMongoFilterChange?.(e.target.value);
-                // Show suggestions when user types a quote
-                if (e.target.value.endsWith('"') || e.target.value.endsWith('"')) {
-                  setShowSuggestions(true);
-                }
+                setShowSuggestions(true);
               }}
               onFocus={() => { setShowSuggestions(true); setInputFocused(true); }}
               onBlur={() => setInputFocused(false)}
               onKeyDown={e => {
-                if (e.key === "Enter" && mongoJsonValid) onApply();
-                if (e.key === "Escape") setShowSuggestions(false);
+                if (e.key === "Enter" && mongoJsonValid) {
+                  onApply();
+                  return;
+                }
+                if (e.key === "Escape") {
+                  setShowSuggestions(false);
+                  return;
+                }
+
+                // Auto-closing brackets/quotes
+                const input = e.currentTarget;
+                const start = input.selectionStart ?? 0;
+                const end = input.selectionEnd ?? 0;
+                const val = input.value;
+
+                let closingChar = "";
+                if (e.key === "{") closingChar = "}";
+                else if (e.key === "[") closingChar = "]";
+                else if (e.key === "(") closingChar = ")";
+                else if (e.key === '"') closingChar = '"';
+                else if (e.key === "'") closingChar = "'";
+
+                if (closingChar) {
+                  e.preventDefault();
+                  const newVal = val.slice(0, start) + e.key + closingChar + val.slice(end);
+                  onMongoFilterChange?.(newVal);
+                  setTimeout(() => {
+                    input.setSelectionRange(start + 1, start + 1);
+                  }, 0);
+                }
               }}
               placeholder='{ "field": "value", "age": { "$gt": 18 } }'
               spellCheck={false}
-              className={`w-full bg-[#21262d] border rounded-xl px-3 py-1 text-[11px] font-mono text-[#e6edf3] placeholder:text-[#484f58] outline-none transition-all ${
+              className={`w-full bg-elevated border rounded-xl px-3 py-1 text-[11px] font-mono text-fg placeholder:text-muted/60 outline-none transition-all ${
                 mongoFilter && !mongoJsonValid
                   ? "border-rose-500/40 focus:border-rose-500"
                   : hasMongoFilter
                     ? "border-blue-500/35 focus:border-blue-500/60"
-                    : "border-[#30363d] hover:border-[#484f58] focus:border-blue-500/50"
+                    : "border-border hover:border-muted focus:border-accent/50"
               }`}
             />
             {mongoFilter && !mongoJsonValid && (
               <AlertCircle size={10} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-rose-400 pointer-events-none" />
             )}
-
+ 
             {/* Field suggestions dropdown */}
-            {showSuggestions && fieldSuggestions.length > 0 && (
+            {showSuggestions && filteredSuggestions.length > 0 && (
               <div
                 ref={suggestionsRef}
-                className="absolute left-0 top-full mt-1 w-full bg-[#161b22] border border-[#30363d] rounded-xl shadow-xl z-20 max-h-48 overflow-auto"
+                className="absolute left-0 top-full mt-1 w-full bg-elevated border border-border rounded-xl shadow-xl z-20 max-h-48 overflow-auto"
               >
-                {fieldSuggestions.map(f => (
+                {filteredSuggestions.map(f => (
                   <button
                     key={f.name}
                     type="button"
                     onMouseDown={e => {
                       e.preventDefault();
-                      const insert = `"${f.name}": `;
-                      onMongoFilterChange?.(mongoFilter + insert);
-                      setShowSuggestions(false);
-                      mqlInputRef.current?.focus();
+                      handleSelectSuggestion(f.name);
                     }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-[#21262d] cursor-pointer text-[11px] flex items-center gap-2"
+                    className="w-full text-left px-3 py-1.5 hover:bg-hover cursor-pointer text-[11px] flex items-center gap-2"
                   >
-                    <span className="text-[#e6edf3] font-mono">{f.name}</span>
+                    <span className="text-fg font-mono">{f.name}</span>
                     {f.data_type && (
-                      <span className="text-[#7d8590] text-[10px]">{f.data_type}</span>
+                      <span className="text-muted text-[10px]">{f.data_type}</span>
                     )}
                   </button>
                 ))}
               </div>
             )}
-
+ 
             {/* Syntax hints — shown below input when focused and empty */}
             {inputFocused && !mongoFilter && (
               <div className="absolute left-0 top-full mt-1 w-full z-20 flex flex-wrap gap-1 px-1">
@@ -249,7 +309,7 @@ export function FilterBar({ columns, columnMeta, filters, onChange, onApply, isM
                       setShowSuggestions(false);
                       mqlInputRef.current?.focus();
                     }}
-                    className="text-[10px] font-mono text-[#7d8590] hover:text-[#e6edf3] bg-[#161b22] border border-[#30363d] rounded px-1.5 py-0.5 transition-colors cursor-pointer"
+                    className="text-[10px] font-mono text-muted hover:text-fg bg-elevated border border-border rounded px-1.5 py-0.5 transition-colors cursor-pointer"
                   >
                     {ex}
                   </button>
@@ -257,21 +317,21 @@ export function FilterBar({ columns, columnMeta, filters, onChange, onApply, isM
               </div>
             )}
           </div>
-
+ 
           {/* AI prompt */}
           <div className="flex items-center gap-1 shrink-0">
             <Sparkles size={10} className="text-violet-500 shrink-0" />
             <input value={aiPrompt} onChange={e => setAiPrompt(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") handleAi(); }}
               placeholder="Ask AI…"
-              className="bg-[#21262d] border border-[#30363d] hover:border-[#484f58] focus:border-violet-500/50 rounded-xl px-2 py-1 text-[10px] text-[#e6edf3] placeholder:text-[#484f58] outline-none transition-all w-28"
+              className="bg-elevated border border-border hover:border-muted focus:border-violet-500/50 rounded-xl px-2 py-1 text-[10px] text-fg placeholder:text-muted/60 outline-none transition-all w-28"
             />
             <button onClick={handleAi} disabled={aiLoading || !aiPrompt.trim()}
               className="p-1 rounded-lg text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 disabled:opacity-40 transition-all">
               {aiLoading ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
             </button>
           </div>
-
+ 
           {hasMongoFilter && (
             <>
               <button onClick={() => mongoJsonValid && onApply()} disabled={!mongoJsonValid}
@@ -279,7 +339,7 @@ export function FilterBar({ columns, columnMeta, filters, onChange, onApply, isM
                 Apply
               </button>
               <button onClick={clear}
-                className="text-[10px] text-[#7d8590] hover:text-[#e6edf3] px-1.5 py-1 rounded-lg hover:bg-[#292e36] transition-all shrink-0">
+                className="text-[10px] text-muted hover:text-fg px-1.5 py-1 rounded-lg hover:bg-hover transition-all shrink-0">
                 Clear
               </button>
             </>
@@ -294,31 +354,31 @@ export function FilterBar({ columns, columnMeta, filters, onChange, onApply, isM
       </div>
     );
   }
-
+ 
   // ── SQL mode (Postgres / MySQL) — chips style (UI-12) ─────────────────────
   return (
-    <div className="shrink-0 border-b border-[#30363d] bg-[#0d1117]/40">
+    <div className="shrink-0 border-b border-border bg-surface/40">
       <div className="flex items-center gap-2 px-3 py-1.5 flex-wrap">
-
+ 
         {/* Filter toggle */}
         <button onClick={() => setOpen(v => !v)}
           className={`flex items-center gap-1.5 text-[10px] rounded-xl px-2 py-1 transition-all shrink-0 ${
             filters.length > 0
               ? "text-blue-300 bg-blue-500/10 border border-blue-500/20"
-              : "text-[#7d8590] hover:text-[#e6edf3] hover:bg-[#292e36] border border-transparent"
+              : "text-muted hover:text-fg hover:bg-hover border border-transparent"
           }`}>
           <Filter size={9} />
           {filters.length > 0 ? `${filters.length}` : "Filter"}
           <ChevronDown size={9} className={`transition-transform ${open ? "rotate-180" : ""}`} />
         </button>
-
+ 
         {/* Active filter chips (UI-12) */}
         {filters.map(f => (
           <FilterChip key={f.id} filter={f} columns={columns}
             onUpdate={update} onRemove={id => { remove(id); if (filters.length <= 1) onApply(); }}
             onApply={onApply} />
         ))}
-
+ 
         {/* AI input */}
         <div className="flex items-center gap-1 flex-1 min-w-[160px]">
           <div className="relative flex-1 min-w-0">
@@ -326,7 +386,7 @@ export function FilterBar({ columns, columnMeta, filters, onChange, onApply, isM
             <input value={aiPrompt} onChange={e => setAiPrompt(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") handleAi(); }}
               placeholder={'Ask AI to filter… e.g. "email contains gmail"'}
-              className="w-full bg-[#21262d] border border-[#30363d]/60 hover:border-white/[0.12] focus:border-violet-500/50 rounded-xl pl-5.5 pr-2 py-1 text-[10px] text-[#e6edf3] placeholder:text-[#484f58] outline-none transition-all"
+              className="w-full bg-elevated border border-border/60 hover:border-muted focus:border-violet-500/50 rounded-xl pl-5.5 pr-2 py-1 text-[10px] text-fg placeholder:text-muted/60 outline-none transition-all"
             />
           </div>
           <button onClick={handleAi} disabled={aiLoading || !aiPrompt.trim() || !columns.length}
@@ -335,7 +395,7 @@ export function FilterBar({ columns, columnMeta, filters, onChange, onApply, isM
             {aiLoading ? "…" : "Filter"}
           </button>
         </div>
-
+ 
         {/* Action buttons */}
         {hasFilters && (
           <>
@@ -344,18 +404,18 @@ export function FilterBar({ columns, columnMeta, filters, onChange, onApply, isM
               Apply
             </button>
             <button onClick={clear}
-              className="text-[10px] text-[#7d8590] hover:text-[#e6edf3] px-1.5 py-1 rounded-xl hover:bg-[#292e36] transition-all shrink-0">
+              className="text-[10px] text-muted hover:text-fg px-1.5 py-1 rounded-xl hover:bg-hover transition-all shrink-0">
               Clear
             </button>
           </>
         )}
-
+ 
         <button onClick={add} disabled={!columns.length}
-          className="shrink-0 flex items-center gap-1 text-[10px] text-[#7d8590] hover:text-[#e6edf3] px-2 py-1 rounded-xl hover:bg-[#292e36] transition-all disabled:opacity-30 border border-transparent hover:border-[#30363d]/60">
+          className="shrink-0 flex items-center gap-1 text-[10px] text-muted hover:text-fg px-2 py-1 rounded-xl hover:bg-hover transition-all disabled:opacity-30 border border-transparent hover:border-border/60">
           <Plus size={9} /> Add
         </button>
       </div>
-
+ 
       {/* Expanded filter editor (when no chips clicked) */}
       {open && filters.length > 0 && false && (
         <div className="px-3 pb-3 space-y-1.5">
@@ -365,7 +425,7 @@ export function FilterBar({ columns, columnMeta, filters, onChange, onApply, isM
           </button>
         </div>
       )}
-
+ 
       {aiError && (
         <div className="mx-3 mb-1.5 px-3 py-1.5 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center justify-between">
           <span className="text-[10px] text-rose-400">{aiError}</span>

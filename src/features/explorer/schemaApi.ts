@@ -4,6 +4,9 @@ import type { TableInfo, ColumnInfo, ForeignKeyInfo, SchemaInfo, IndexInfo } fro
 export const listDatabases = (connId: string) =>
   invoke<string[]>("list_databases", { connId });
 
+export const switchMongoDb = (connId: string, dbName: string) =>
+  invoke<void>("switch_mongo_db", { connId, dbName });
+
 export const listSchemas = (connId: string) =>
   invoke<SchemaInfo[]>("list_schemas", { connId });
 
