@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { listIndexes } from "./objectApi";
+import { listIndexes, ensureMongoDb } from "./objectApi";
 import type { IndexInfo } from "../../shared/types";
 import type { OpenObject } from "../../stores/workspaceStore";
 
@@ -10,8 +10,11 @@ export function IndexesShell({ object }: { object: OpenObject }) {
 
   useEffect(() => {
     setIdx(null); setError("");
-    listIndexes(object.connId, object.table).then(setIdx).catch((e) => setError(String(e)));
-  }, [object.connId, object.table]);
+    ensureMongoDb(object)
+      .then(() => listIndexes(object.connId, object.table))
+      .then(setIdx)
+      .catch((e) => setError(String(e)));
+  }, [object.connId, object.table, object.engine, object.database]);
 
   if (error) return <div className="p-4 text-xs text-danger break-words">{error}</div>;
   if (!idx) return <div className="p-4 text-xs text-muted flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Loading…</div>;

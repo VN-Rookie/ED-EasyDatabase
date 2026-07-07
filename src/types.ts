@@ -1,4 +1,4 @@
-export type DbType = "postgres" | "mysql" | "mongodb";
+export type DbType = "postgres" | "mysql" | "mongodb" | "redis";
 
 export interface ConnectionConfig {
   id: string;
@@ -41,4 +41,5 @@ export const DEFAULT_PORTS: Record<DbType, number> = {
   postgres: 5432,
   mysql: 3306,
   mongodb: 27017,
+  redis: 6379,
 };

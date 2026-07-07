@@ -1,4 +1,4 @@
-export type DbType = "postgres" | "mysql" | "mongodb";
+export type DbType = "postgres" | "mysql" | "mongodb" | "redis";
 
 export interface ConnectionConfig {
   id: string;
@@ -24,6 +24,7 @@ export const DEFAULT_PORTS: Record<DbType, number> = {
   postgres: 5432,
   mysql: 3306,
   mongodb: 27017,
+  redis: 6379,
 };
 
 export interface SchemaInfo {
@@ -89,3 +90,35 @@ export interface EditConfirmation {
   tableName: string;
   edits: RowEdit[];
 }
+
+export interface InsertRowInput {
+  table: string;
+  values: Record<string, unknown>;
+}
+
+export interface UpdateRowInput {
+  table: string;
+  pk_column: string;
+  pk_value: unknown;
+  values: Record<string, unknown>;
+}
+
+export interface DeleteRowInput {
+  table: string;
+  pk_column: string;
+  pk_value: unknown;
+}
+
+export interface BatchEditInput {
+  table: string;
+  updates: UpdateRowInput[];
+  inserts: InsertRowInput[];
+  deletes: DeleteRowInput[];
+}
+
+export interface AuditEntry {
+  timestamp: string;
+  conn_id: string;
+  sql: string;
+}
+

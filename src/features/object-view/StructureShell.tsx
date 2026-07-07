@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { Loader2 } from "lucide-react";
-import { describeTable, listForeignKeys } from "./objectApi";
-import type { ColumnInfo, ForeignKeyInfo } from "../../shared/types";
+import { describeTable, listForeignKeys, ensureMongoDb } from "./objectApi";
+import type { ColumnInfo, ForeignKeyInfo, DbType } from "../../shared/types";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 interface OpenObject {
@@ -9,7 +9,8 @@ interface OpenObject {
   connId: string;
   table: string;
   label: string;
-  engine: "postgres" | "mysql" | "mongodb";
+  engine: DbType;
+  database?: string;
 }
 
 export function StructureShell({ object }: { object: OpenObject }) {
@@ -22,16 +23,22 @@ export function StructureShell({ object }: { object: OpenObject }) {
     setForeignKeys(null);
     setError("");
 
-    Promise.all([
-      describeTable(object.connId, object.table),
-      listForeignKeys(object.connId, object.table),
-    ])
-      .then(([columns, fks]) => {
+    const load = async () => {
+      try {
+        await ensureMongoDb(object);
+        const columns = await describeTable(object.connId, object.table);
+        // MongoDB has no foreign keys; the backend rejects the call.
+        const fks = object.engine === "mongodb"
+          ? []
+          : await listForeignKeys(object.connId, object.table);
         setCols(columns);
         setForeignKeys(fks);
-      })
-      .catch((e) => setError(String(e)));
-  }, [object.connId, object.table]);
+      } catch (e) {
+        setError(String(e));
+      }
+    };
+    load();
+  }, [object.connId, object.table, object.engine, object.database]);
 
   // Build a map from column name to FK info
   const fkColumnInfo = useMemo(() => {

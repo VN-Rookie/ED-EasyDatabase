@@ -28,6 +28,14 @@ interface DataGridState {
   // All modified cells that haven't been saved yet
   dirtyCells: Map<string, DirtyCell>; // key = "rowIndex:column"
 
+  // Staged row insertions and deletions
+  stagedInsertions: Record<string, unknown>[];
+  stagedDeletions: Set<unknown>; // Set of primary key values
+  rowsOffset: number; // number of existing database rows loaded in the current view
+
+  // Multi-selection
+  selectedRowIndices: Set<number>;
+
   // Currently selected cell (for keyboard navigation)
   selectedCell: { rowIndex: number; column: string } | null;
 
@@ -47,6 +55,23 @@ interface DataGridState {
   isColumnHidden: (objectId: string, column: string) => boolean;
   getCellValue: (rowIndex: number, column: string, originalValue: unknown) => unknown;
   isDirty: (rowIndex: number, column: string) => boolean;
+
+  // New actions for staged rows
+  setRowsOffset: (count: number) => void;
+  addStagedRow: (columns: string[]) => void;
+  updateStagedRow: (idx: number, column: string, value: unknown) => void;
+  removeStagedRow: (idx: number) => void;
+  toggleStagedDeletion: (pkValue: unknown) => void;
+  isStagedDeleted: (pkValue: unknown) => boolean;
+  clearStagedInsertions: () => void;
+  clearStagedDeletions: () => void;
+
+  // Actions for multi-selection
+  setSelectedRowIndices: (indices: Set<number>) => void;
+  toggleRowSelection: (rowIndex: number) => void;
+  clearRowSelection: () => void;
+  removeMultipleStagedRows: (indices: number[]) => void;
+  addMultipleStagedDeletions: (pkValues: unknown[]) => void;
 }
 
 function makeDirtyKey(rowIndex: number, column: string): string {
@@ -56,6 +81,10 @@ function makeDirtyKey(rowIndex: number, column: string): string {
 export const useDataGridStore = create<DataGridState>((set, get) => ({
   editingCell: null,
   dirtyCells: new Map(),
+  stagedInsertions: [],
+  stagedDeletions: new Set(),
+  rowsOffset: 0,
+  selectedRowIndices: new Set(),
   selectedCell: null,
   hiddenColumns: new Map(),
 
@@ -131,13 +160,110 @@ export const useDataGridStore = create<DataGridState>((set, get) => ({
   },
 
   getCellValue: (rowIndex: number, column: string, originalValue: unknown) => {
+    const { dirtyCells, stagedInsertions, rowsOffset } = get();
+    if (rowIndex >= rowsOffset) {
+      const idx = rowIndex - rowsOffset;
+      return stagedInsertions[idx]?.[column] ?? "";
+    }
     const key = makeDirtyKey(rowIndex, column);
-    const dirty = get().dirtyCells.get(key);
+    const dirty = dirtyCells.get(key);
     return dirty ? dirty.newValue : originalValue;
   },
 
   isDirty: (rowIndex: number, column: string) => {
+    const { dirtyCells, rowsOffset } = get();
+    if (rowIndex >= rowsOffset) {
+      return true; // Newly inserted rows are always considered dirty/unsaved
+    }
     const key = makeDirtyKey(rowIndex, column);
-    return get().dirtyCells.has(key);
+    return dirtyCells.has(key);
+  },
+
+  setRowsOffset: (count: number) => {
+    set({ rowsOffset: count });
+  },
+
+  addStagedRow: (columns: string[]) => {
+    set((state) => {
+      const newRow: Record<string, unknown> = {};
+      columns.forEach((col) => {
+        newRow[col] = "";
+      });
+      return { stagedInsertions: [...state.stagedInsertions, newRow] };
+    });
+  },
+
+  updateStagedRow: (idx: number, column: string, value: unknown) => {
+    set((state) => {
+      const newInsertions = [...state.stagedInsertions];
+      if (newInsertions[idx]) {
+        newInsertions[idx] = { ...newInsertions[idx], [column]: value };
+      }
+      return { stagedInsertions: newInsertions };
+    });
+  },
+
+  removeStagedRow: (idx: number) => {
+    set((state) => ({
+      stagedInsertions: state.stagedInsertions.filter((_, i) => i !== idx),
+    }));
+  },
+
+  toggleStagedDeletion: (pkValue: unknown) => {
+    set((state) => {
+      const newDeletions = new Set(state.stagedDeletions);
+      if (newDeletions.has(pkValue)) {
+        newDeletions.delete(pkValue);
+      } else {
+        newDeletions.add(pkValue);
+      }
+      return { stagedDeletions: newDeletions };
+    });
+  },
+
+  isStagedDeleted: (pkValue: unknown) => {
+    return get().stagedDeletions.has(pkValue);
+  },
+
+  clearStagedInsertions: () => {
+    set({ stagedInsertions: [] });
+  },
+
+  clearStagedDeletions: () => {
+    set({ stagedDeletions: new Set() });
+  },
+
+  setSelectedRowIndices: (indices: Set<number>) => {
+    set({ selectedRowIndices: indices });
+  },
+
+  toggleRowSelection: (rowIndex: number) => {
+    set((state) => {
+      const next = new Set(state.selectedRowIndices);
+      if (next.has(rowIndex)) {
+        next.delete(rowIndex);
+      } else {
+        next.add(rowIndex);
+      }
+      return { selectedRowIndices: next };
+    });
+  },
+
+  clearRowSelection: () => {
+    set({ selectedRowIndices: new Set() });
+  },
+
+  removeMultipleStagedRows: (indices: number[]) => {
+    set((state) => ({
+      stagedInsertions: state.stagedInsertions.filter((_, idx) => !indices.includes(idx)),
+    }));
+  },
+
+  addMultipleStagedDeletions: (pkValues: unknown[]) => {
+    set((state) => {
+      const next = new Set(state.stagedDeletions);
+      pkValues.forEach((pk) => next.add(pk));
+      return { stagedDeletions: next };
+    });
   },
 }));

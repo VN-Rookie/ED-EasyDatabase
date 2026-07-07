@@ -1,6 +1,7 @@
 import { Table2, ListTree, Hash, FileCode } from "lucide-react";
 import { Tabs, type TabItem } from "../../shared/ui/Tabs";
 import { DataGridShell } from "./DataGridShell";
+import { DocumentView } from "./DocumentView";
 import { StructureShell } from "./StructureShell";
 import { IndexesShell } from "./IndexesShell";
 import { DdlShell } from "./DdlShell";
@@ -23,7 +24,7 @@ export function ObjectView({ object }: { object: OpenObject }) {
         <span className="ml-auto text-[11px] font-mono text-muted bg-elevated border border-border rounded-[var(--radius-md)] px-2 py-0.5">{object.label}</span>
       </div>
       <div className="flex-1 overflow-hidden flex flex-col">
-        {subView === "data" && <DataGridShell object={object} />}
+        {subView === "data" && (isMongo ? <DocumentView object={object} /> : <DataGridShell object={object} />)}
         {subView === "structure" && <StructureShell object={object} />}
         {subView === "indexes" && <IndexesShell object={object} />}
         {subView === "ddl" && !isMongo && <DdlShell object={object} />}

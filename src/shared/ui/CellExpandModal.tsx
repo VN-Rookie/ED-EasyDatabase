@@ -16,14 +16,28 @@ export function CellExpandModal({ column, value, onClose }: CellExpandModalProps
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const raw =
-    value === null || value === undefined
-      ? "NULL"
-      : typeof value === "object"
-        ? JSON.stringify(value, null, 2)
-        : String(value);
+  let raw = "";
+  let isJson = false;
 
-  const isJson = typeof value === "object" && value !== null;
+  if (value === null || value === undefined) {
+    raw = "NULL";
+  } else if (typeof value === "object") {
+    raw = JSON.stringify(value, null, 2);
+    isJson = true;
+  } else {
+    const str = String(value);
+    if ((str.startsWith("{") && str.endsWith("}")) || (str.startsWith("[") && str.endsWith("]"))) {
+      try {
+        const parsed = JSON.parse(str);
+        raw = JSON.stringify(parsed, null, 2);
+        isJson = true;
+      } catch {
+        raw = str;
+      }
+    } else {
+      raw = str;
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] backdrop-blur-sm anim-fade">

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Maximize2 } from "lucide-react";
+import { Maximize2, Link2 } from "lucide-react";
 import { Input } from "../../shared/ui/Input";
 import { Textarea } from "../../shared/ui/Textarea";
 import { Select } from "../../shared/ui/Select";
@@ -17,6 +17,7 @@ interface DataGridCellProps {
   foreignKeyOptions?: { value: string; label: string }[];
   dataType?: string;
   onSave?: (edit: DirtyCell) => void;
+  onFkClick?: (column: string, value: unknown) => void;
 }
 
 /**
@@ -34,8 +35,9 @@ export function DataGridCell({
   foreignKeyOptions = [],
   dataType = "text",
   onSave,
+  onFkClick,
 }: DataGridCellProps) {
-  const { editingCell, startEditing, stopEditing, getCellValue, isDirty, updateDirtyValue } =
+  const { editingCell, startEditing, stopEditing, getCellValue, isDirty, updateDirtyValue, rowsOffset, updateStagedRow } =
     useDataGridStore();
 
   const [editValue, setEditValue] = useState("");
@@ -70,14 +72,18 @@ export function DataGridCell({
     }
 
     const newValue = editValue === "" ? null : editValue;
-    updateDirtyValue(rowIndex, column, value, newValue);
+    if (rowIndex >= rowsOffset) {
+      updateStagedRow(rowIndex - rowsOffset, column, newValue);
+    } else {
+      updateDirtyValue(rowIndex, column, value, newValue);
+    }
 
     if (onSave) {
       onSave({ rowIndex, column, originalValue: value, newValue });
     }
 
     stopEditing();
-  }, [editValue, rowIndex, column, value, onSave, stopEditing, updateDirtyValue, validateValue]);
+  }, [editValue, rowIndex, column, value, onSave, stopEditing, updateDirtyValue, validateValue, rowsOffset, updateStagedRow]);
 
   const handleCancel = useCallback(() => {
     setEditValue(currentValue === null || currentValue === undefined ? "" : String(currentValue));
@@ -169,29 +175,50 @@ export function DataGridCell({
   // Render view mode
   const renderDisplayValue = () => {
     if (currentValue === null || currentValue === undefined) {
-      return <span className="text-faint italic">NULL</span>;
+      return <span className="text-faint/50 italic select-none font-sans">∅</span>;
     }
 
     const str = typeof currentValue === "object" ? JSON.stringify(currentValue) : String(currentValue);
     const isLongContent = str.length > MAX_CELL_LEN;
 
+    const fkLink = isForeignKey && onFkClick && (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onFkClick(column, currentValue);
+        }}
+        className="shrink-0 p-0.5 text-accent hover:text-accent-strong hover:bg-hover rounded transition-colors inline-flex items-center"
+        title="Go to referenced row"
+      >
+        <Link2 size={11} />
+      </button>
+    );
+
     if (!isLongContent) {
-      return <span className="block truncate whitespace-nowrap">{str}</span>;
+      return (
+        <span className="flex items-center justify-between gap-1 min-w-0 w-full">
+          <span className="block truncate whitespace-nowrap">{str}</span>
+          {fkLink}
+        </span>
+      );
     }
 
     return (
-      <span className="flex items-center gap-1 min-w-0 flex-1">
+      <span className="flex items-center gap-1 min-w-0 flex-1 w-full justify-between">
         <span className="flex-1 truncate whitespace-nowrap min-w-0">{str.slice(0, MAX_CELL_LEN)}…</span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowExpandModal(true);
-          }}
-          className="shrink-0 p-1 text-muted hover:text-fg hover:bg-hover rounded transition-colors"
-          title="Expand to view full content"
-        >
-          <Maximize2 size={12} />
-        </button>
+        <span className="flex items-center gap-0.5 shrink-0">
+          {fkLink}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowExpandModal(true);
+            }}
+            className="p-1 text-muted hover:text-fg hover:bg-hover rounded transition-colors"
+            title="Expand to view full content"
+          >
+            <Maximize2 size={12} />
+          </button>
+        </span>
       </span>
     );
   };
