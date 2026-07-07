@@ -66,14 +66,14 @@ pub struct ConnectionMeta {
 }
 
 /// Input for inserting a row
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct InsertRowInput {
     pub table: String,
     pub values: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Input for updating a row
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct UpdateRowInput {
     pub table: String,
     pub pk_column: String,
@@ -82,7 +82,7 @@ pub struct UpdateRowInput {
 }
 
 /// Input for deleting a row
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct DeleteRowInput {
     pub table: String,
     pub pk_column: String,
@@ -126,3 +126,13 @@ pub struct ReplaceDocumentInput {
     pub replacement: serde_json::Map<String, serde_json::Value>,
     pub upsert: Option<bool>,
 }
+
+/// Input for executing batch operations atomically in a transaction
+#[derive(Deserialize, Clone)]
+pub struct BatchEditInput {
+    pub table: String,
+    pub updates: Vec<UpdateRowInput>,
+    pub inserts: Vec<InsertRowInput>,
+    pub deletes: Vec<DeleteRowInput>,
+}
+

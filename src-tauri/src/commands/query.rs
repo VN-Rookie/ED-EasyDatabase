@@ -1,9 +1,23 @@
 use tauri::State;
-use crate::{error::AppError, model::{DeleteDocumentInput, InsertDocumentInput, QueryResult, ReplaceDocumentInput, UpdateDocumentInput}, state::AppState};
+use crate::{error::AppError, model::{DeleteDocumentInput, InsertDocumentInput, QueryResult, ReplaceDocumentInput, UpdateDocumentInput, BatchEditInput}, state::AppState};
 
 #[tauri::command]
 pub async fn run_query(conn_id: String, sql: String, state: State<'_, AppState>) -> Result<QueryResult, AppError> {
     state.driver(&conn_id)?.run_query(&sql).await
+}
+
+#[tauri::command]
+pub async fn apply_batch_edits(
+    conn_id: String,
+    input: BatchEditInput,
+    state: State<'_, AppState>,
+) -> Result<QueryResult, AppError> {
+    state.driver(&conn_id)?.apply_batch_edits(input).await
+}
+
+#[tauri::command]
+pub async fn count_rows(conn_id: String, table: String, state: State<'_, AppState>) -> Result<u64, AppError> {
+    state.driver(&conn_id)?.count_rows(&table).await
 }
 
 #[tauri::command]

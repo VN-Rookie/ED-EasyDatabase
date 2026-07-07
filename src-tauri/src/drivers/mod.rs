@@ -1,13 +1,14 @@
 pub mod postgres;
 pub mod mysql;
 pub mod mongo;
+pub mod redis;
 
 use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::db;
 use crate::error::AppError;
-use crate::model::{ColumnInfo, ConnectionConfig, DeleteDocumentInput, DeleteRowInput, ForeignKeyInfo, IndexInfo, InsertDocumentInput, InsertRowInput, QueryResult, ReplaceDocumentInput, SchemaInfo, TableInfo, UpdateDocumentInput, UpdateRowInput};
+use crate::model::{ColumnInfo, ConnectionConfig, DeleteDocumentInput, DeleteRowInput, ForeignKeyInfo, IndexInfo, InsertDocumentInput, InsertRowInput, QueryResult, ReplaceDocumentInput, SchemaInfo, TableInfo, UpdateDocumentInput, UpdateRowInput, BatchEditInput};
 
 #[async_trait]
 pub trait Driver: Send + Sync {
@@ -21,6 +22,8 @@ pub trait Driver: Send + Sync {
         // Default: not supported (MongoDB)
         Err(AppError::new("list_foreign_keys is not supported for this engine"))
     }
+    /// Total rows (SQL) / documents (Mongo) in a table or collection.
+    async fn count_rows(&self, table: &str) -> Result<u64, AppError>;
     async fn run_query(&self, sql: &str) -> Result<QueryResult, AppError>;
     /// MongoDB only: switch the browsed database. Default: unsupported.
     async fn set_database(&self, _db: &str) -> Result<(), AppError> {
@@ -42,6 +45,11 @@ pub trait Driver: Send + Sync {
         Err(AppError::new("delete_row is not supported for this engine"))
     }
 
+    /// Apply multiple edits atomically in a transaction. Default: unsupported.
+    async fn apply_batch_edits(&self, _input: BatchEditInput) -> Result<QueryResult, AppError> {
+        Err(AppError::new("apply_batch_edits is not supported for this engine"))
+    }
+
     /// Insert a document into a collection (MongoDB only). Default: unsupported.
     async fn insert_document(&self, _input: InsertDocumentInput) -> Result<QueryResult, AppError> {
         Err(AppError::new("insert_document is not supported for this engine"))
@@ -60,6 +68,21 @@ pub trait Driver: Send + Sync {
     /// Replace a document in a collection (MongoDB only). Default: unsupported.
     async fn replace_document(&self, _input: ReplaceDocumentInput) -> Result<QueryResult, AppError> {
         Err(AppError::new("replace_document is not supported for this engine"))
+    }
+
+    /// Bulk insert data into a table.
+    async fn bulk_insert(
+        &self,
+        _table: &str,
+        _columns: &[String],
+        _rows: Vec<Vec<serde_json::Value>>,
+    ) -> Result<(), AppError> {
+        Err(AppError::new("bulk_insert is not supported for this engine"))
+    }
+
+    /// Generate logical SQL/BSON dump for schema & data.
+    async fn generate_logical_dump(&self) -> Result<String, AppError> {
+        Err(AppError::new("generate_logical_dump is not supported for this engine"))
     }
 }
 
@@ -82,7 +105,10 @@ pub async fn connect(config: &ConnectionConfig) -> Result<Arc<dyn Driver>, AppEr
                 "postgres://{}:{}@{}:{}/{}",
                 config.username, config.password, config.host, config.port, config.database
             );
-            Ok(Arc::new(postgres::PostgresDriver { pool: db::connect_postgres(&url).await? }))
+            Ok(Arc::new(postgres::PostgresDriver {
+                pool: db::connect_postgres(&url).await?,
+                schema: std::sync::RwLock::new("public".to_string()),
+            }))
         }
         "mysql" => {
             let url = format!(
@@ -95,9 +121,28 @@ pub async fn connect(config: &ConnectionConfig) -> Result<Arc<dyn Driver>, AppEr
             if config.connection_string.is_empty() {
                 return Err(AppError::new("MongoDB requires a connection string"));
             }
-            let client = db::connect_mongo(&config.connection_string).await?;
-            let initial = if config.database.is_empty() { "test".to_string() } else { config.database.clone() };
+            let (client, default_db) = db::connect_mongo(&config.connection_string).await?;
+            // Explicit Database field wins; otherwise use the default database
+            // from the connection string; only then fall back to Mongo's "test".
+            let initial = if !config.database.is_empty() {
+                config.database.clone()
+            } else {
+                default_db.unwrap_or_else(|| "test".to_string())
+            };
             Ok(Arc::new(mongo::MongoDriver::new(client, initial)))
+        }
+        "redis" => {
+            let conn_url = if config.connection_string.is_empty() {
+                format!("redis://{}:{}/", config.host, config.port)
+            } else {
+                config.connection_string.clone()
+            };
+            let client = ::redis::Client::open(conn_url).map_err(|e| AppError::new(e.to_string()))?;
+            let driver = Arc::new(redis::RedisDriver::new(client));
+            if !config.database.is_empty() {
+                let _ = driver.set_database(&config.database).await;
+            }
+            Ok(driver)
         }
         t => Err(AppError::new(format!("Unsupported db type: {t}"))),
     }
