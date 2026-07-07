@@ -7,10 +7,12 @@ import { StreamLanguage } from "@codemirror/language";
 import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
 import { format } from "sql-formatter";
-import { Play, Loader2, TableProperties, Maximize2, AlertCircle, ChevronDown, Sparkles, Bookmark, Wand2, History } from "lucide-react";
+import { Play, Loader2, TableProperties, Maximize2, AlertCircle, ChevronDown, Sparkles, Bookmark, Wand2, History, Zap, X } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { save as nativeSave } from "@tauri-apps/plugin-dialog";
 import { runQuery } from "../object-view/objectApi";
 import { generateSql } from "./aiApi";
-import { listTables, describeTable } from "../explorer/schemaApi";
+import { listTables, describeTable, listDatabases, switchMongoDb } from "../explorer/schemaApi";
 import { CellDetailModal } from "../../shared/ui/CellDetailModal";
 import { SavedQueriesPanel } from "../saved-queries/SavedQueriesPanel";
 import { QueryHistoryPanel } from "./QueryHistoryPanel";
@@ -18,7 +20,55 @@ import { QueryTabsBar, type QueryTab } from "./QueryTabsBar";
 import { useConnectionStore } from "../connection/connectionStore";
 import { useThemeStore } from "../../stores/themeStore";
 import { useViewStore } from "../../stores/viewStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { useToast } from "../../components/Toast";
 import type { QueryResult, TableInfo } from "../../shared/types";
+import { buildSchemaContext } from "../../lib/schemaContext";
+
+// ── EXPLAIN plan types ────────────────────────────────────────────────────────
+interface ExplainNode {
+  "Node Type": string;
+  "Startup Cost"?: number;
+  "Total Cost"?: number;
+  "Plan Rows"?: number;
+  "Actual Rows"?: number;
+  "Actual Total Time"?: number;
+  "Relation Name"?: string;
+  "Index Name"?: string;
+  Plans?: ExplainNode[];
+  [k: string]: unknown;
+}
+
+function ExplainTree({ node, depth = 0 }: { node: ExplainNode; depth?: number }) {
+  const [open, setOpen] = useState(true);
+  const children = node.Plans ?? [];
+  const cost = node["Total Cost"];
+  const rows = node["Actual Rows"] ?? node["Plan Rows"];
+  const time = node["Actual Total Time"];
+  const label = node["Relation Name"] ? `${node["Node Type"]} on ${node["Relation Name"]}` : node["Node Type"];
+  const indexNote = node["Index Name"] ? ` using ${node["Index Name"]}` : "";
+  const expensiveThreshold = 1000;
+
+  return (
+    <div style={{ paddingLeft: depth * 16 }}>
+      <div className="flex items-center gap-2 py-0.5 group">
+        {children.length > 0 && (
+          <button onClick={() => setOpen(v => !v)} className="text-muted hover:text-fg shrink-0 text-[10px] w-3">{open ? "▾" : "▸"}</button>
+        )}
+        {children.length === 0 && <span className="w-3 shrink-0" />}
+        <span className={`text-xs font-medium ${cost && cost > expensiveThreshold ? "text-warn" : "text-fg"}`}>
+          {label}{indexNote}
+        </span>
+        <div className="flex items-center gap-2 ml-auto shrink-0 text-[10px] font-mono opacity-70">
+          {cost !== undefined && <span className={`${cost > expensiveThreshold ? "text-warn font-semibold" : "text-muted"}`}>cost={cost.toFixed(2)}</span>}
+          {rows !== undefined && <span className="text-muted">rows={rows}</span>}
+          {time !== undefined && <span className={`${time > 100 ? "text-warn" : "text-ok"}`}>{time.toFixed(2)}ms</span>}
+        </div>
+      </div>
+      {open && children.map((child, i) => <ExplainTree key={i} node={child} depth={depth + 1} />)}
+    </div>
+  );
+}
 
 // MQL (MongoDB Query Language) syntax highlighting
 const mqlLanguage = StreamLanguage.define({
@@ -71,6 +121,12 @@ const SQL_KEYWORDS = [
   "END", "COALESCE", "NULLIF", "CAST", "CONVERT", "WITH", "RECURSIVE",
   "RETURNING", "DISTINCT", "OVER", "PARTITION", "ROW_NUMBER", "RANK",
   "DENSE_RANK", "LAG", "LEAD", "FIRST_VALUE", "LAST_VALUE", "NTH_VALUE",
+];
+
+const MQL_METHODS = ["find", "findOne", "countDocuments", "sort", "limit", "skip"];
+const MQL_OPERATORS = [
+  "$eq", "$ne", "$gt", "$gte", "$lt", "$lte", "$in", "$nin",
+  "$and", "$or", "$not", "$regex", "$exists", "$type", "$size", "$elemMatch",
 ];
 
 interface CellModal { column: string; value: string }
@@ -136,18 +192,28 @@ function ResultsTable({ result }: { result: QueryResult }) {
 
 export function SqlConsoleShell() {
   const { activeConnections, activeConnectionId } = useConnectionStore();
+  const { toast } = useToast();
   const [connId, setConnId] = useState<string>("");
   const pref = useThemeStore((s) => s.pref);
   const isDark = pref === "dark" || (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const pushHistory = useViewStore((s) => s.pushHistory);
+  const editorFontSize = useSettingsStore((s) => s.settings.editor_font_size);
 
   // Get connection type for syntax highlighting
   const currentConnection = activeConnections.find((c) => c.id === connId);
   const isMongoConnection = currentConnection?.db_type === "mongodb";
+  // MongoDB console db context (queries run against the driver's current db)
+  const [mongoDbs, setMongoDbs] = useState<string[]>([]);
+  const [mongoDb, setMongoDb] = useState("");
 
   useEffect(() => {
     const newConnId = connId || activeConnectionId || activeConnections[0]?.id || "";
     setConnId(newConnId);
+
+    // Reset explain states on connection change
+    setExplainPlan(null);
+    setExplanation(null);
+    setExplainError(null);
 
     // Set default query based on connection type when connection changes
     const newConn = activeConnections.find((c) => c.id === newConnId);
@@ -157,23 +223,26 @@ export function SqlConsoleShell() {
     }
   }, [activeConnectionId, activeConnections]);
 
-  // Load schema for auto-completion when connection changes
+  // Load schema for auto-completion when connection changes.
+  // Mongo: collection names only (sampling every collection for fields is too slow).
   useEffect(() => {
-    if (!connId || isMongoConnection) return;
+    if (!connId) return;
 
     const loadSchema = async () => {
       try {
         const tables = await listTables(connId);
         const tableColumns = new Map<string, { name: string; type: string }[]>();
 
-        // Load columns for each table
-        for (const table of tables) {
-          try {
-            const columns = await describeTable(connId, table.name);
-            tableColumns.set(table.name, columns.map(c => ({ name: c.name, type: c.data_type })));
-          } catch {
-            // Table might not exist or be accessible
-            tableColumns.set(table.name, []);
+        if (!isMongoConnection) {
+          // Load columns for each table
+          for (const table of tables) {
+            try {
+              const columns = await describeTable(connId, table.name);
+              tableColumns.set(table.name, columns.map(c => ({ name: c.name, type: c.data_type })));
+            } catch {
+              // Table might not exist or be accessible
+              tableColumns.set(table.name, []);
+            }
           }
         }
 
@@ -188,6 +257,12 @@ export function SqlConsoleShell() {
     };
 
     loadSchema();
+  }, [connId, isMongoConnection, mongoDb]);
+
+  // MongoDB: list databases for the console's db selector.
+  useEffect(() => {
+    if (!connId || !isMongoConnection) { setMongoDbs([]); setMongoDb(""); return; }
+    listDatabases(connId).then(setMongoDbs).catch(() => setMongoDbs([]));
   }, [connId, isMongoConnection]);
 
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -203,6 +278,11 @@ export function SqlConsoleShell() {
   const [snippetsOpen, setSnippetsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [resultsHeight, setResultsHeight] = useState(208);
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [explaining, setExplaining] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
+  const [explainPlan, setExplainPlan] = useState<ExplainNode | null>(null);
+  const [analyzingPlan, setAnalyzingPlan] = useState(false);
   const [schemaCache, setSchemaCache] = useState<SchemaCache>({
     tables: [],
     tableColumns: new Map(),
@@ -275,13 +355,46 @@ export function SqlConsoleShell() {
 
   const onDragEnd = useCallback(() => { dragRef.current = null; }, []);
 
+  const getQueryToRun = useCallback((): string => {
+    const view = viewRef.current;
+    if (!view) return currentQuery.trim();
+
+    const sel = view.state.selection.main;
+    if (!sel.empty) {
+      return view.state.sliceDoc(sel.from, sel.to).trim();
+    }
+
+    // Statement Splitting: Extract the SQL statement under the cursor
+    const doc = view.state.doc.toString();
+    const cursor = sel.head;
+
+    // Find the semicolon before the cursor
+    let from = 0;
+    for (let i = cursor - 1; i >= 0; i--) {
+      if (doc[i] === ";") {
+        from = i + 1;
+        break;
+      }
+    }
+
+    // Find the semicolon after the cursor
+    let to = doc.length;
+    for (let i = cursor; i < doc.length; i++) {
+      if (doc[i] === ";") {
+        to = i;
+        break;
+      }
+    }
+
+    const statement = doc.slice(from, to).trim();
+    if (statement) return statement;
+
+    return currentQuery.trim();
+  }, [currentQuery]);
+
   const execute = useCallback(async () => {
     if (!connId || running) return;
-    const view = viewRef.current;
-    const sel = view?.state.selection.main;
-    const textToRun = (sel && sel.from !== sel.to)
-      ? view!.state.sliceDoc(sel.from, sel.to)
-      : currentQuery;
+    const textToRun = getQueryToRun();
     if (!textToRun.trim()) return;
     setRunning(true);
     setResult(null);
@@ -298,7 +411,85 @@ export function SqlConsoleShell() {
       setElapsed(Date.now() - startRef.current);
       setRunning(false);
     }
-  }, [connId, currentQuery, running, pushHistory]);
+  }, [connId, getQueryToRun, running, pushHistory]);
+
+  const handleExplain = useCallback(async (queryToExplain: string) => {
+    if (!queryToExplain.trim() || !connId) return;
+    setExplaining(true);
+    setExplainError(null);
+    setExplanation(null);
+    try {
+      const tableNames = schemaCache.tables.map((t) => t.name);
+      const schemaContext = await buildSchemaContext(connId, tableNames);
+      const text = await invoke<string>("explain_sql", { sql: queryToExplain, schemaContext });
+      setExplanation(text);
+    } catch (e) {
+      setExplainError(String(e));
+    } finally {
+      setExplaining(false);
+    }
+  }, [connId, schemaCache.tables]);
+
+  const handleAnalyzePlan = useCallback(async () => {
+    const q = getQueryToRun();
+    if (!q.trim() || !connId) return;
+    setAnalyzingPlan(true);
+    setExplainPlan(null);
+    setExplainError(null);
+    try {
+      const res = await invoke<{ rows: Record<string, unknown>[] }>(
+        "run_query",
+        { connId, sql: `EXPLAIN (ANALYZE, FORMAT JSON) ${q}` }
+      );
+      const raw = res.rows?.[0]?.["QUERY PLAN"];
+      if (typeof raw === "string") {
+        const parsed = JSON.parse(raw) as Array<{ Plan: ExplainNode }>;
+        setExplainPlan(parsed[0]?.Plan ?? null);
+      }
+    } catch (e) {
+      setExplainError(String(e));
+    } finally {
+      setAnalyzingPlan(false);
+    }
+  }, [connId, getQueryToRun]);
+
+  const handleExportResults = useCallback(async () => {
+    if (!result || result.rows.length === 0) return;
+    
+    // Build CSV content
+    const header = result.columns.join(",");
+    const csvRows = result.rows.map((row) =>
+      result.columns
+        .map((col) => {
+          const val = row[col];
+          const str = val === null || val === undefined ? "" : String(val);
+          return `"${str.replace(/"/g, '""').replace(/\n/g, " ").replace(/\r/g, "")}"`;
+        })
+        .join(",")
+    );
+    const csvContent = [header, ...csvRows].join("\n");
+
+    try {
+      // Trigger Tauri Native Save Dialog
+      const filePath = await nativeSave({
+        defaultPath: `query_results.csv`,
+        filters: [
+          { name: "CSV", extensions: ["csv"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+
+      if (!filePath) return;
+
+      // Invoke save_to_file Tauri backend command
+      await invoke("save_to_file", { path: filePath, content: csvContent });
+
+      const fileName = filePath.split(/[/\\]/).pop() ?? filePath;
+      toast(`Successfully exported results to ${fileName}`, "success");
+    } catch (e) {
+      toast(`Export failed: ${e}`, "error");
+    }
+  }, [result, toast]);
 
   const loadSqlIntoEditor = useCallback((sqlStr: string) => {
     updateTabQuery(sqlStr);
@@ -390,10 +581,48 @@ export function SqlConsoleShell() {
     };
   }, [schemaCache]);
 
+  const handleMongoDbChange = async (db: string) => {
+    setMongoDb(db);
+    try {
+      await switchMongoDb(connId, db);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  // MQL completion: collections after "db.", methods after ".", $ operators.
+  const mongoCompletionSource = useCallback((context: CompletionContext): CompletionResult | null => {
+    const dbMatch = context.matchBefore(/db\.\w*/);
+    if (dbMatch) {
+      return {
+        from: dbMatch.from + 3,
+        options: schemaCache.tables.map((t) => ({ label: t.name, type: "class", detail: "collection" })),
+        validFor: /^\w*$/,
+      };
+    }
+    const opMatch = context.matchBefore(/\$\w*/);
+    if (opMatch) {
+      return {
+        from: opMatch.from,
+        options: MQL_OPERATORS.map((o) => ({ label: o, type: "keyword" })),
+        validFor: /^\$\w*$/,
+      };
+    }
+    const methodMatch = context.matchBefore(/\.\w*/);
+    if (methodMatch) {
+      return {
+        from: methodMatch.from + 1,
+        options: MQL_METHODS.map((m) => ({ label: m, type: "function", detail: "method" })),
+        validFor: /^\w*$/,
+      };
+    }
+    return null;
+  }, [schemaCache]);
+
   // Choose language extension based on connection type
   const cmExtensions = [
     isMongoConnection ? mqlLanguage : sql({ dialect: PostgreSQL, tables: schemaCache.tables.map(t => ({ label: t.name, columns: schemaCache.tableColumns.get(t.name)?.map(c => ({ label: c.name, type: c.type })) || [] })) }),
-    autocompletion({ override: isMongoConnection ? [] : [sqlCompletionSource] }),
+    autocompletion({ override: isMongoConnection ? [mongoCompletionSource] : [sqlCompletionSource] }),
     keymap.of([{ key: "Mod-Enter", run: () => { execute(); return true; } }]),
   ];
 
@@ -419,6 +648,22 @@ export function SqlConsoleShell() {
           <ChevronDown size={10} className="absolute right-1.5 text-muted pointer-events-none" />
         </div>
 
+        {/* MongoDB database selector */}
+        {isMongoConnection && (
+          <div className="relative flex items-center">
+            <select
+              value={mongoDb}
+              onChange={(e) => handleMongoDbChange(e.target.value)}
+              className="appearance-none bg-elevated border border-border rounded-[var(--radius-sm)] text-xs text-fg pl-2.5 pr-6 py-1 cursor-pointer hover:border-accent focus:outline-none focus:border-accent transition-colors"
+              title="MongoDB database"
+            >
+              <option value="" disabled>database…</option>
+              {mongoDbs.map((db) => <option key={db} value={db}>{db}</option>)}
+            </select>
+            <ChevronDown size={10} className="absolute right-1.5 text-muted pointer-events-none" />
+          </div>
+        )}
+
         {/* Run button */}
         <button
           onMouseDown={(e) => e.preventDefault()}
@@ -442,6 +687,34 @@ export function SqlConsoleShell() {
           <Wand2 size={11} />
           Format
         </button>
+
+        {/* EXPLAIN ANALYZE button */}
+        {!isMongoConnection && (
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleAnalyzePlan}
+            disabled={noConn || analyzingPlan || !currentQuery.trim()}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-[var(--radius-sm)] border border-border text-xs font-medium text-muted hover:text-fg hover:border-warn hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="EXPLAIN ANALYZE"
+          >
+            {analyzingPlan ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+            Explain Plan
+          </button>
+        )}
+
+        {/* Explain with AI button */}
+        {!isMongoConnection && (
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => handleExplain(getQueryToRun())}
+            disabled={noConn || explaining || !currentQuery.trim()}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-[var(--radius-sm)] border border-border text-xs font-medium text-muted hover:text-fg hover:border-accent hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Explain with AI"
+          >
+            {explaining ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+            AI Explain
+          </button>
+        )}
 
         {/* Status */}
         {elapsed !== null && !running && (
@@ -526,7 +799,7 @@ export function SqlConsoleShell() {
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Editor */}
-          <div className="flex-1 min-h-0 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-hidden" style={{ fontSize: `${editorFontSize}px` }}>
             <CodeMirror
               value={currentQuery}
               onChange={updateTabQuery}
@@ -534,7 +807,14 @@ export function SqlConsoleShell() {
               theme={isDark ? oneDark : "light"}
               extensions={cmExtensions}
               height="100%"
-              basicSetup={{ lineNumbers: true, foldGutter: false }}
+              basicSetup={{
+                lineNumbers: true,
+                foldGutter: false,
+                closeBrackets: true,
+                bracketMatching: true,
+                history: true,
+                highlightActiveLine: true,
+              }}
             />
           </div>
 
@@ -549,6 +829,53 @@ export function SqlConsoleShell() {
 
           {/* Results panel */}
           <div style={{ height: resultsHeight }} className="border-t border-border flex flex-col shrink-0 overflow-hidden">
+            {/* EXPLAIN ANALYZE plan */}
+            {(explainPlan || analyzingPlan) && (
+              <div className="shrink-0 border-b border-border bg-surface/50 max-h-48 overflow-y-auto">
+                <div className="flex items-start justify-between px-3 pt-2 pb-1">
+                  <div className="flex items-center gap-1.5 text-[10px] text-warn font-semibold">
+                    <Zap size={10} /> Query Plan
+                  </div>
+                  <button onClick={() => setExplainPlan(null)}
+                    className="text-muted hover:text-fg rounded p-0.5 hover:bg-hover transition-colors">
+                    <X size={11} />
+                  </button>
+                </div>
+                {analyzingPlan ? (
+                  <div className="px-3 pb-2 flex items-center gap-2 text-xs text-muted">
+                    <Loader2 size={11} className="animate-spin" /> Running EXPLAIN ANALYZE…
+                  </div>
+                ) : explainPlan && (
+                  <div className="px-3 pb-3 font-mono text-[11px]">
+                    <ExplainTree node={explainPlan} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* AI explanation panel */}
+            {(explanation || explainError || explaining) && (
+              <div className="shrink-0 border-b border-border bg-surface/50 max-h-36 overflow-y-auto">
+                <div className="flex items-start justify-between px-3 pt-2 pb-1">
+                  <div className="flex items-center gap-1.5 text-[10px] text-accent font-semibold">
+                    <Sparkles size={10} /> AI Explanation
+                  </div>
+                  <button onClick={() => { setExplanation(null); setExplainError(null); }}
+                    className="text-muted hover:text-fg rounded p-0.5 hover:bg-hover transition-colors">
+                    <X size={11} />
+                  </button>
+                </div>
+                {explaining && (
+                  <div className="px-3 pb-2 flex items-center gap-2 text-xs text-muted">
+                    <Loader2 size={11} className="animate-spin" /> Explaining…
+                  </div>
+                )}
+                {explainError && <p className="px-3 pb-2 text-xs text-danger">{explainError}</p>}
+                {explanation && (
+                  <p className="px-3 pb-3 text-xs text-fg leading-relaxed whitespace-pre-wrap">{explanation}</p>
+                )}
+              </div>
+            )}
             {error ? (
               <div className="flex-1 overflow-auto p-3 flex gap-2">
                 <AlertCircle size={13} className="text-danger shrink-0 mt-0.5" />
@@ -564,9 +891,21 @@ export function SqlConsoleShell() {
                   </span>
                 </div>
               ) : (
-                <div className="flex-1 overflow-auto">
-                  <ResultsTable result={result} />
-                </div>
+                <>
+                  <div className="flex items-center justify-between px-3 py-1 bg-surface border-b border-border shrink-0">
+                    <span className="text-[10px] text-muted font-semibold uppercase tracking-wider">Results</span>
+                    <button
+                      onClick={handleExportResults}
+                      className="flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-sm)] border border-border text-[11px] font-medium text-muted hover:text-fg hover:border-accent hover:bg-hover transition-colors"
+                      title="Export results to CSV"
+                    >
+                      Export CSV
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-auto">
+                    <ResultsTable result={result} />
+                  </div>
+                </>
               )
             ) : (
               <div className="flex-1 flex items-center justify-center gap-2 text-faint">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Toolbar } from "./Toolbar";
 import { StatusBar } from "./StatusBar";
 import { ResizableSplit } from "../shared/ui/ResizableSplit";
@@ -11,11 +11,27 @@ import { usePaletteHotkey, usePaletteStore } from "../features/command-palette/u
 import { useLayoutStore } from "../stores/layoutStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useTheme } from "../shared/ui/useTheme";
+import { BackupProgressWidget } from "../features/explorer/BackupProgressWidget";
+import { useSettings } from "../hooks/useSettings";
+import { useSettingsStore } from "../stores/settingsStore";
 import type { ConnectionConfig } from "../shared/types";
 
 export function AppShell() {
   useTheme();
   usePaletteHotkey();
+  const { loadSettings } = useSettings();
+  const settings = useSettingsStore((s) => s.settings);
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  useEffect(() => {
+    if (settings.system_font_size) {
+      document.documentElement.style.fontSize = `${settings.system_font_size}px`;
+    }
+  }, [settings.system_font_size]);
+
   const paletteOpen = usePaletteStore((s) => s.open);
   const setPaletteOpen = usePaletteStore((s) => s.setOpen);
   const { explorerWidth, setExplorerWidth } = useLayoutStore();
@@ -45,6 +61,7 @@ export function AppShell() {
           onOpenSettings={() => setSettingsOpen(true)}
         />
       )}
+      <BackupProgressWidget />
     </div>
   );
 }

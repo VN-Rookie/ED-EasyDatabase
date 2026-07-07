@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Table2, Terminal, X } from "lucide-react";
 import { EmptyState } from "../../shared/ui/EmptyState";
 import { ObjectView } from "../object-view/ObjectView";
@@ -6,8 +5,7 @@ import { SqlConsoleShell } from "../sql-console/SqlConsoleShell";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 export function Workspace() {
-  const { openObjects, activeObjectId, setActiveObject, closeObject } = useWorkspaceStore();
-  const [consoleOpen, setConsoleOpen] = useState(false);
+  const { openObjects, activeObjectId, setActiveObject, closeObject, consoleOpen, setConsoleOpen } = useWorkspaceStore();
   const active = openObjects.find((o) => o.id === activeObjectId);
 
   return (
