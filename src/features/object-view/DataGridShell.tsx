@@ -208,16 +208,15 @@ function DataGrid({
         </div>
 
         {/* Filter Input */}
-        {!isMongo && (
-          <div className="flex items-center gap-1 flex-1 max-w-xs md:max-w-md mx-2">
-            <input
-              type="text"
-              value={filterText}
-              onChange={(e) => onFilterTextChange(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onApplyFilter()}
-              placeholder="Filter (e.g. status = 'active')..."
-              className="w-full bg-elevated border border-border rounded-[var(--radius-sm)] text-xs px-2.5 py-1 focus:outline-none focus:border-accent text-fg"
-            />
+        <div className="flex items-center gap-1 flex-1 max-w-xs md:max-w-md mx-2">
+          <input
+            type="text"
+            value={filterText}
+            onChange={(e) => onFilterTextChange(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && onApplyFilter()}
+            placeholder={isMongo ? 'Filter (e.g. {"status": "active"})...' : "Filter (e.g. status = 'active')..."}
+            className="w-full bg-elevated border border-border rounded-[var(--radius-sm)] text-xs px-2.5 py-1 focus:outline-none focus:border-accent text-fg"
+          />
             {filterText && (
               <button
                 onClick={() => {
@@ -236,7 +235,6 @@ function DataGrid({
               Filter
             </button>
           </div>
-        )}
 
         {/* Actions */}
         <div className="flex items-center gap-1">
@@ -652,19 +650,28 @@ export function DataGridShell({ object }: { object: OpenObject }) {
       try {
         await ensureMongoDb(object);
 
-        let query = `SELECT * FROM ${quoteIdent(object.table, object.engine)}`;
-        
-        // Filter support (for relational SQL engines)
-        if (appliedFilter.trim() && object.engine !== "mongodb") {
-          query += ` WHERE ${appliedFilter}`;
-        }
+        let query = "";
+        if (object.engine === "mongodb") {
+          const filterStr = appliedFilter.trim();
+          const filterJson = filterStr || "{}";
+          query = `db.${object.table}.find(${filterJson})`;
+          if (sortColumn) {
+            query += `.sort({${JSON.stringify(sortColumn)}:${sortDirection === "ASC" ? 1 : -1}})`;
+          }
+          query += `.limit(${pageSize}).skip(${page * pageSize})`;
+        } else {
+          query = `SELECT * FROM ${quoteIdent(object.table, object.engine)}`;
+          
+          if (appliedFilter.trim()) {
+            query += ` WHERE ${appliedFilter}`;
+          }
 
-        // Sorting support
-        if (sortColumn) {
-          query += ` ORDER BY ${quoteIdent(sortColumn, object.engine)} ${sortDirection}`;
-        }
+          if (sortColumn) {
+            query += ` ORDER BY ${quoteIdent(sortColumn, object.engine)} ${sortDirection}`;
+          }
 
-        query += ` LIMIT ${pageSize} OFFSET ${page * pageSize}`;
+          query += ` LIMIT ${pageSize} OFFSET ${page * pageSize}`;
+        }
 
         const data = await runQuery(object.connId, query);
         setResult(data);

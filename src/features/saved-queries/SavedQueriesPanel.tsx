@@ -51,17 +51,17 @@ function EditableRow({ q, onSave, onDelete, onLoad, onRun }: {
         )}
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
           <button onClick={() => setEditing(true)} title="Rename" className="p-0.5 rounded text-muted hover:text-fg hover:bg-elevated transition-colors">
-            <Pencil size={9} />
+            <Pencil size={13} />
           </button>
           <button onClick={() => onRun(q.sql)} title="Run" className="p-0.5 rounded text-muted hover:text-accent hover:bg-elevated transition-colors">
-            <Play size={9} />
+            <Play size={13} />
           </button>
           <button onClick={() => onDelete(q.id)} title="Delete" className="p-0.5 rounded text-muted hover:text-danger hover:bg-elevated transition-colors">
-            <Trash2 size={9} />
+            <Trash2 size={13} />
           </button>
         </div>
       </div>
-      <p className="text-[10px] text-faint font-mono mt-0.5 truncate">{q.sql.slice(0, 60)}{q.sql.length > 60 ? "…" : ""}</p>
+      <p className="text-xs text-faint font-mono mt-0.5 truncate">{q.sql.slice(0, 60)}{q.sql.length > 60 ? "…" : ""}</p>
     </div>
   );
 }
@@ -97,14 +97,14 @@ export function SavedQueriesPanel({ currentSql, onLoad, onRun, onClose }: Props)
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
         <div className="flex items-center gap-1.5">
-          <Bookmark size={11} className="text-accent" />
+          <Bookmark size={14} className="text-accent" />
           <span className="text-xs font-semibold text-fg">Snippets</span>
           {queries.length > 0 && (
-            <span className="text-[9px] text-muted bg-elevated rounded-full px-1.5 py-0.5">{queries.length}</span>
+            <span className="text-xs text-muted bg-elevated rounded-full px-1.5 py-0.5">{queries.length}</span>
           )}
         </div>
         <button onClick={onClose} className="text-muted hover:text-fg transition-colors">
-          <X size={12} />
+          <X size={15} />
         </button>
       </div>
 
@@ -139,13 +139,13 @@ export function SavedQueriesPanel({ currentSql, onLoad, onRun, onClose }: Props)
               <button
                 onClick={handleSave}
                 disabled={saving || !saveName.trim()}
-                className="flex-1 flex items-center justify-center gap-1 text-[10px] bg-accent hover:bg-accent-strong disabled:opacity-40 text-on-accent rounded-[var(--radius-sm)] py-1 transition-colors font-medium"
+                className="flex-1 flex items-center justify-center gap-1 text-xs bg-accent hover:bg-accent-strong disabled:opacity-40 text-on-accent rounded-[var(--radius-sm)] py-1 transition-colors font-medium"
               >
-                <Check size={9} /> Save
+                <Check size={13} /> Save
               </button>
               <button
                 onClick={() => { setShowSaveForm(false); setSaveName(""); }}
-                className="text-[10px] text-muted hover:text-fg px-2 py-1 rounded-[var(--radius-sm)] hover:bg-elevated transition-colors"
+                className="text-xs text-muted hover:text-fg px-2 py-1 rounded-[var(--radius-sm)] hover:bg-elevated transition-colors"
               >
                 ✕
               </button>
@@ -155,9 +155,9 @@ export function SavedQueriesPanel({ currentSql, onLoad, onRun, onClose }: Props)
           <button
             onClick={() => setShowSaveForm(true)}
             disabled={!currentSql.trim()}
-            className="w-full flex items-center justify-center gap-1.5 text-[10px] text-muted hover:text-fg border border-dashed border-border hover:border-fg/30 rounded-[var(--radius-sm)] py-1.5 transition-colors disabled:opacity-40"
+            className="w-full flex items-center justify-center gap-1.5 text-xs text-muted hover:text-fg border border-dashed border-border hover:border-fg/30 rounded-[var(--radius-sm)] py-1.5 transition-colors disabled:opacity-40"
           >
-            <Plus size={10} /> Save current query
+            <Plus size={13} /> Save current query
           </button>
         )}
       </div>
@@ -167,7 +167,7 @@ export function SavedQueriesPanel({ currentSql, onLoad, onRun, onClose }: Props)
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 px-4 py-8">
             <Bookmark size={16} className="text-faint" />
-            <p className="text-[10px] text-faint text-center">
+            <p className="text-xs text-faint text-center">
               {search ? "No matches" : "No snippets yet.\nSave a query to get started."}
             </p>
           </div>

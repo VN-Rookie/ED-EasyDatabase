@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { importCsvData, importJsonData, describeTable } from "./objectApi";
 import { useToast } from "../../components/Toast";
 import type { ColumnInfo } from "../../shared/types";
+import { useTranslation } from "../../hooks/useTranslation";
 
 interface Props {
   connId: string;
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
+  const { t } = useTranslation();
   const [importSource, setImportSource] = useState<"file" | "direct">("file");
   const [directContent, setDirectContent] = useState("");
 
@@ -43,7 +45,7 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
         });
         setMappings(initMap);
       })
-      .catch((e) => setError(`Failed to load table structure: ${e}`))
+      .catch((e) => setError(`${t("failedLoadTableStructure")}: ${e}`))
       .finally(() => setLoadingSchema(false));
   }, [connId, table]);
 
@@ -78,7 +80,7 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
         }
       }
     } catch (e) {
-      setError(`Failed to read file headers: ${e}`);
+      setError(`${t("failedReadFileHeaders")}: ${e}`);
     }
   };
 
@@ -98,7 +100,7 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
       setFileHeaders(headers);
       autoMap(headers);
     } catch (e) {
-      setError(`Failed to parse data headers: ${e}`);
+      setError(`${t("failedParseDataHeaders")}: ${e}`);
     }
   };
 
@@ -136,7 +138,7 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
     });
 
     if (Object.keys(activeMappings).length === 0) {
-      setError("Please map at least one column to import data");
+      setError(t("toastMapAtLeastOne"));
       setImporting(false);
       return;
     }
@@ -156,7 +158,7 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
         }
       }
 
-      toast("Data imported successfully!", "success");
+      toast(t("toastImportSuccess"), "success");
       onSuccess();
       onClose();
     } catch (e) {
@@ -170,12 +172,12 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] anim-fade">
-      <div className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-lg anim-pop w-[480px] max-h-[85vh] flex flex-col">
+      <div className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-lg anim-pop w-[480px] h-[580px] max-h-[90vh] flex flex-col resize overflow-hidden min-w-[380px] min-h-[400px]">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-          <span className="text-sm font-semibold text-fg">Import Data to "{table}"</span>
+          <span className="text-sm font-semibold text-fg">{t("importTitle")} "{table}"</span>
           <button onClick={onClose} className="text-muted hover:text-fg transition-colors">
-            <X size={14} />
+            <X size={18} />
           </button>
         </div>
 
@@ -183,7 +185,7 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {error && (
             <div className="p-3 bg-danger/10 border border-danger/20 rounded-[var(--radius-md)] flex gap-2 text-xs text-danger">
-              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
@@ -201,7 +203,7 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
                 importSource === "file" ? "border-accent text-accent" : "border-transparent text-muted hover:text-fg"
               }`}
             >
-              Import File
+              {t("importTabFile")}
             </button>
             <button
               onClick={() => {
@@ -214,29 +216,29 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
                 importSource === "direct" ? "border-accent text-accent" : "border-transparent text-muted hover:text-fg"
               }`}
             >
-              Paste Direct Data
+              {t("importTabDirect")}
             </button>
           </div>
 
           {/* Step 1: Input source */}
           {importSource === "file" ? (
             <div className="space-y-1.5">
-              <label className={labelCls}>Source File</label>
+              <label className={labelCls}>{t("sourceFileLabel")}</label>
               <div className="flex gap-2">
                 <input
                   readOnly
                   value={filePath}
-                  placeholder="Click Select File to browse..."
+                  placeholder={t("clickSelectFilePlaceholder")}
                   className="flex-1 bg-elevated border border-border rounded-[var(--radius-md)] px-3 py-1.5 text-xs text-fg placeholder:text-faint outline-none"
                 />
                 <Button variant="subtle" size="sm" onClick={handleSelectFile} disabled={importing}>
-                  <Upload size={12} className="mr-1" />
-                  Select File
+                  <Upload size={15} className="mr-1" />
+                  {t("selectFileBtn")}
                 </Button>
               </div>
               {filePath && (
                 <span className="text-[10px] text-muted">
-                  Detected: <b className="uppercase">{fileType}</b> format
+                  {t("detectedFormatText")}: <b className="uppercase">{fileType}</b>
                 </span>
               )}
             </div>
@@ -244,7 +246,7 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex-1">
-                  <label className={labelCls}>Format</label>
+                  <label className={labelCls}>{t("formatLabel")}</label>
                   <Select
                     value={fileType}
                     onChange={(e) => {
@@ -265,12 +267,12 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
                   disabled={!directContent.trim() || importing}
                   className="mt-4"
                 >
-                  Parse Headers
+                  {t("parseHeadersBtn")}
                 </Button>
               </div>
 
               <div className="space-y-1">
-                <label className={labelCls}>Data Content</label>
+                <label className={labelCls}>{t("dataContentLabel")}</label>
                 <textarea
                   value={directContent}
                   onChange={(e) => setDirectContent(e.target.value)}
@@ -289,18 +291,18 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
           {/* Step 2: Columns Mapping */}
           {((importSource === "file" && filePath) || (importSource === "direct" && fileHeaders.length > 0)) && (
             <div className="space-y-2">
-              <label className={labelCls}>Configure Column Mapping</label>
+              <label className={labelCls}>{t("configColumnMappingLabel")}</label>
               {loadingSchema ? (
                 <div className="flex items-center gap-1.5 py-4 text-xs text-muted">
-                  <Loader2 size={12} className="animate-spin" /> Loading schema...
+                  <Loader2 size={15} className="animate-spin" /> {t("loadingSchemaText")}
                 </div>
               ) : (
                 <div className="border border-border rounded-[var(--radius-md)] bg-elevated max-h-[220px] overflow-y-auto">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-border bg-surface text-muted sticky top-0">
-                        <th className="p-2 font-medium">Database Column</th>
-                        <th className="p-2 font-medium">Source File Column/Key</th>
+                        <th className="p-2 font-medium">{t("dbColumnHeader")}</th>
+                        <th className="p-2 font-medium">{t("sourceFileColHeader")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -316,7 +318,7 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
                               onChange={(e) => handleMapChange(col.name, e.target.value)}
                               className="w-full h-7 text-[11px]"
                             >
-                              <option value="">-- Skip Column --</option>
+                              <option value="">{t("skipColumnOption")}</option>
                               {fileHeaders.map((h) => (
                                 <option key={h} value={h}>
                                   {h}
@@ -337,7 +339,7 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border shrink-0">
           <Button variant="ghost" size="sm" onClick={onClose} disabled={importing}>
-            Cancel
+            {t("cancelButton")}
           </Button>
           <Button
             variant="primary"
@@ -347,13 +349,13 @@ export function ImportModal({ connId, table, onClose, onSuccess }: Props) {
           >
             {importing ? (
               <>
-                <Loader2 size={12} className="animate-spin mr-1" />
-                Importing...
+                <Loader2 size={15} className="animate-spin mr-1" />
+                {t("importingBtn")}
               </>
             ) : (
               <>
-                <Check size={12} className="mr-1" />
-                Start Import
+                <Check size={15} className="mr-1" />
+                {t("startImportBtn")}
               </>
             )}
           </Button>

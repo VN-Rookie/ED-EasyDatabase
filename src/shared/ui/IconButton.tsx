@@ -9,7 +9,7 @@ interface IconButtonProps {
   size?: number;
 }
 
-export function IconButton({ icon: Icon, label, onClick, active, disabled, size = 14 }: IconButtonProps) {
+export function IconButton({ icon: Icon, label, onClick, active, disabled, size = 17 }: IconButtonProps) {
   return (
     <button
       type="button"

@@ -6,13 +6,15 @@ import { keymap } from "@codemirror/view";
 import { StreamLanguage } from "@codemirror/language";
 import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
+import { linter, type Diagnostic } from "@codemirror/lint";
 import { format } from "sql-formatter";
 import { Play, Loader2, TableProperties, Maximize2, AlertCircle, ChevronDown, Sparkles, Bookmark, Wand2, History, Zap, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { save as nativeSave } from "@tauri-apps/plugin-dialog";
 import { runQuery } from "../object-view/objectApi";
-import { generateSql } from "./aiApi";
-import { listTables, describeTable, listDatabases, switchMongoDb } from "../explorer/schemaApi";
+import { generateSql, fixSqlError } from "./aiApi";
+import { useTranslation } from "../../hooks/useTranslation";
+import { listTables, listDatabases, switchMongoDb, describeSchema } from "../explorer/schemaApi";
 import { CellDetailModal } from "../../shared/ui/CellDetailModal";
 import { SavedQueriesPanel } from "../saved-queries/SavedQueriesPanel";
 import { QueryHistoryPanel } from "./QueryHistoryPanel";
@@ -129,6 +131,47 @@ const MQL_OPERATORS = [
   "$and", "$or", "$not", "$regex", "$exists", "$type", "$size", "$elemMatch",
 ];
 
+const sqlLinter = (view: EditorView): Diagnostic[] => {
+  const diagnostics: Diagnostic[] = [];
+  const docText = view.state.doc.toString();
+
+  // 1. SELECT * Check
+  const selectAllRegex = /\bSELECT\s+\*\b/gi;
+  let match;
+  while ((match = selectAllRegex.exec(docText)) !== null) {
+    diagnostics.push({
+      from: match.index,
+      to: match.index + match[0].length,
+      severity: "warning",
+      message: "SELECT * might perform poorly on large tables. Consider listing columns explicitly.",
+    });
+  }
+
+  // 2. Comma Join Check (Implicit Cross Join)
+  const commaJoinRegex = /\bFROM\s+[a-zA-Z_]\w*\s*,\s*[a-zA-Z_]\w*\b/gi;
+  while ((match = commaJoinRegex.exec(docText)) !== null) {
+    diagnostics.push({
+      from: match.index,
+      to: match.index + match[0].length,
+      severity: "warning",
+      message: "Comma-separated implicit joins can cause performance issues (Cartesian product). Use explicit JOIN ... ON syntax.",
+    });
+  }
+
+  // 3. Non-Sargable WHERE Function Call Check (e.g., WHERE DATE(col) = )
+  const nonSargableRegex = /\bWHERE\s+[a-zA-Z_]\w*\(\s*[a-zA-Z_]\w*\s*\)/gi;
+  while ((match = nonSargableRegex.exec(docText)) !== null) {
+    diagnostics.push({
+      from: match.index,
+      to: match.index + match[0].length,
+      severity: "warning",
+      message: "Applying functions to columns inside WHERE clause may disable index usage (Non-Sargable Query).",
+    });
+  }
+
+  return diagnostics;
+};
+
 interface CellModal { column: string; value: string }
 
 // Schema cache for completions
@@ -190,14 +233,16 @@ function ResultsTable({ result }: { result: QueryResult }) {
   );
 }
 
-export function SqlConsoleShell() {
+export function SqlConsoleShell({ connId: initialConnId }: { connId?: string }) {
+  const { t } = useTranslation();
   const { activeConnections, activeConnectionId } = useConnectionStore();
   const { toast } = useToast();
-  const [connId, setConnId] = useState<string>("");
+  const [connId, setConnId] = useState<string>(initialConnId || activeConnectionId || "");
   const pref = useThemeStore((s) => s.pref);
   const isDark = pref === "dark" || (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const pushHistory = useViewStore((s) => s.pushHistory);
   const editorFontSize = useSettingsStore((s) => s.settings.editor_font_size);
+  const editorFontFamily = useSettingsStore((s) => s.settings.editor_font_family);
 
   // Get connection type for syntax highlighting
   const currentConnection = activeConnections.find((c) => c.id === connId);
@@ -207,7 +252,7 @@ export function SqlConsoleShell() {
   const [mongoDb, setMongoDb] = useState("");
 
   useEffect(() => {
-    const newConnId = connId || activeConnectionId || activeConnections[0]?.id || "";
+    const newConnId = connId || initialConnId || activeConnectionId || activeConnections[0]?.id || "";
     setConnId(newConnId);
 
     // Reset explain states on connection change
@@ -224,26 +269,20 @@ export function SqlConsoleShell() {
   }, [activeConnectionId, activeConnections]);
 
   // Load schema for auto-completion when connection changes.
-  // Mongo: collection names only (sampling every collection for fields is too slow).
   useEffect(() => {
     if (!connId) return;
 
     const loadSchema = async () => {
       try {
-        const tables = await listTables(connId);
+        const schemaData = await describeSchema(connId);
+        const tables: TableInfo[] = schemaData.map((s) => ({ name: s.table_name }));
         const tableColumns = new Map<string, { name: string; type: string }[]>();
 
-        if (!isMongoConnection) {
-          // Load columns for each table
-          for (const table of tables) {
-            try {
-              const columns = await describeTable(connId, table.name);
-              tableColumns.set(table.name, columns.map(c => ({ name: c.name, type: c.data_type })));
-            } catch {
-              // Table might not exist or be accessible
-              tableColumns.set(table.name, []);
-            }
-          }
+        for (const s of schemaData) {
+          tableColumns.set(
+            s.table_name,
+            s.columns.map((c) => ({ name: c.name, type: c.data_type }))
+          );
         }
 
         setSchemaCache({
@@ -274,6 +313,7 @@ export function SqlConsoleShell() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiFixing, setAiFixing] = useState(false);
   const [aiError, setAiError] = useState("");
   const [snippetsOpen, setSnippetsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -539,6 +579,31 @@ export function SqlConsoleShell() {
     }
   }, [aiPrompt, aiLoading, connId, loadSqlIntoEditor]);
 
+  const handleAiQuickFix = useCallback(async () => {
+    if (!error || !connId || aiFixing) return;
+    const q = getQueryToRun();
+    if (!q.trim()) return;
+
+    setAiFixing(true);
+    try {
+      let schemaContext = "";
+      try {
+        const tableNames = schemaCache.tables.map((t) => t.name);
+        schemaContext = tableNames.join(", ");
+        if (schemaContext) schemaContext = `Tables: ${schemaContext}`;
+      } catch { /* best-effort */ }
+
+      const fixed = await fixSqlError(q, error, schemaContext);
+      loadSqlIntoEditor(fixed);
+      toast("AI fixed the query! Please run it again.", "success");
+      setError("");
+    } catch (e) {
+      toast(`AI Fix failed: ${e}`, "error");
+    } finally {
+      setAiFixing(false);
+    }
+  }, [error, connId, aiFixing, getQueryToRun, schemaCache.tables, loadSqlIntoEditor, toast]);
+
   // Custom SQL completion source using schema
   const sqlCompletionSource = useCallback((context: CompletionContext): CompletionResult | null => {
     const word = context.matchBefore(/\w*/);
@@ -621,10 +686,25 @@ export function SqlConsoleShell() {
 
   // Choose language extension based on connection type
   const cmExtensions = [
-    isMongoConnection ? mqlLanguage : sql({ dialect: PostgreSQL, tables: schemaCache.tables.map(t => ({ label: t.name, columns: schemaCache.tableColumns.get(t.name)?.map(c => ({ label: c.name, type: c.type })) || [] })) }),
-    autocompletion({ override: isMongoConnection ? [mongoCompletionSource] : [sqlCompletionSource] }),
+    isMongoConnection 
+      ? mqlLanguage 
+      : sql({ 
+          dialect: PostgreSQL, 
+          tables: schemaCache.tables.map(t => ({ 
+            label: t.name, 
+            columns: schemaCache.tableColumns.get(t.name)?.map(c => ({ label: c.name, type: c.type })) || [] 
+          })) 
+        }),
+    ...(isMongoConnection 
+      ? [autocompletion({ override: [mongoCompletionSource] })] 
+      : [
+          PostgreSQL.language.data.of({ autocomplete: sqlCompletionSource }),
+          linter(sqlLinter)
+        ]),
     keymap.of([{ key: "Mod-Enter", run: () => { execute(); return true; } }]),
   ];
+
+
 
   const noConn = activeConnections.length === 0;
 
@@ -668,12 +748,12 @@ export function SqlConsoleShell() {
         <button
           onMouseDown={(e) => e.preventDefault()}
           onClick={execute}
-          disabled={noConn || running}
+          disabled={noConn || running || !currentQuery.trim()}
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-[var(--radius-sm)] bg-accent text-on-accent text-xs font-medium hover:bg-accent-strong disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           title="Run (⌘↵)"
         >
           {running ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
-          Run
+          {t("runQueryBtn")}
         </button>
 
         {/* Format button */}
@@ -685,7 +765,7 @@ export function SqlConsoleShell() {
           title="Format SQL"
         >
           <Wand2 size={11} />
-          Format
+          {t("formatSqlBtn")}
         </button>
 
         {/* EXPLAIN ANALYZE button */}
@@ -698,7 +778,7 @@ export function SqlConsoleShell() {
             title="EXPLAIN ANALYZE"
           >
             {analyzingPlan ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
-            Explain Plan
+            {t("explainPlanBtn")}
           </button>
         )}
 
@@ -712,7 +792,7 @@ export function SqlConsoleShell() {
             title="Explain with AI"
           >
             {explaining ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-            AI Explain
+            {t("aiExplainBtn")}
           </button>
         )}
 
@@ -721,9 +801,9 @@ export function SqlConsoleShell() {
           <span className="text-[11px] text-muted ml-1">
             {result
               ? result.rows.length > 0
-                ? `${result.rows.length} row${result.rows.length !== 1 ? "s" : ""} · ${elapsed}ms`
+                ? `${result.rows.length} ${t("rows")} · ${elapsed}ms`
                 : result.rows_affected !== null
-                  ? `${result.rows_affected} row${result.rows_affected !== 1 ? "s" : ""} affected · ${elapsed}ms`
+                  ? `${result.rows_affected} ${t("rows")} ${t("rowsAffected")} · ${elapsed}ms`
                   : `OK · ${elapsed}ms`
               : `${elapsed}ms`}
           </span>
@@ -736,7 +816,7 @@ export function SqlConsoleShell() {
             title="Generate SQL with AI"
           >
             <Sparkles size={11} />
-            AI
+            {t("aiToggle")}
           </button>
           <button
             onClick={() => setSnippetsOpen((v) => !v)}
@@ -744,7 +824,7 @@ export function SqlConsoleShell() {
             title="Saved queries"
           >
             <Bookmark size={11} />
-            Snippets
+            {t("snippetsToggle")}
           </button>
           <button
             onClick={() => setHistoryOpen((v) => !v)}
@@ -752,10 +832,10 @@ export function SqlConsoleShell() {
             title="Query history"
           >
             <History size={11} />
-            History
+            {t("historyToggle")}
           </button>
         </div>
-        <span className="text-[10px] text-faint">⌘↵ to run</span>
+        <span className="text-[10px] text-faint">{t("kbdRunHint")}</span>
       </div>
 
       {/* AI prompt bar */}
@@ -768,7 +848,7 @@ export function SqlConsoleShell() {
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); generateQuery(); } }}
-              placeholder="Describe the query in natural language…"
+              placeholder={t("aiPromptPlaceholder")}
               className="flex-1 bg-transparent text-xs text-fg placeholder:text-faint outline-none"
             />
             <button
@@ -778,7 +858,7 @@ export function SqlConsoleShell() {
               className="flex items-center gap-1 px-2.5 py-1 rounded-[var(--radius-sm)] bg-accent text-on-accent text-xs font-medium hover:bg-accent-strong disabled:opacity-50 transition-colors"
             >
               {aiLoading ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
-              Generate
+              {t("aiGenerateBtn")}
             </button>
           </div>
           {aiError && <p className="text-[11px] text-danger font-mono">{aiError}</p>}
@@ -799,7 +879,7 @@ export function SqlConsoleShell() {
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Editor */}
-          <div className="flex-1 min-h-0 overflow-hidden" style={{ fontSize: `${editorFontSize}px` }}>
+          <div className="flex-1 min-h-0 overflow-hidden" style={{ fontSize: `${editorFontSize}px`, fontFamily: editorFontFamily || undefined }}>
             <CodeMirror
               value={currentQuery}
               onChange={updateTabQuery}
@@ -834,7 +914,7 @@ export function SqlConsoleShell() {
               <div className="shrink-0 border-b border-border bg-surface/50 max-h-48 overflow-y-auto">
                 <div className="flex items-start justify-between px-3 pt-2 pb-1">
                   <div className="flex items-center gap-1.5 text-[10px] text-warn font-semibold">
-                    <Zap size={10} /> Query Plan
+                    <Zap size={10} /> {t("queryPlanTitle")}
                   </div>
                   <button onClick={() => setExplainPlan(null)}
                     className="text-muted hover:text-fg rounded p-0.5 hover:bg-hover transition-colors">
@@ -843,7 +923,7 @@ export function SqlConsoleShell() {
                 </div>
                 {analyzingPlan ? (
                   <div className="px-3 pb-2 flex items-center gap-2 text-xs text-muted">
-                    <Loader2 size={11} className="animate-spin" /> Running EXPLAIN ANALYZE…
+                    <Loader2 size={11} className="animate-spin" /> {t("runningExplainPlan")}
                   </div>
                 ) : explainPlan && (
                   <div className="px-3 pb-3 font-mono text-[11px]">
@@ -858,7 +938,7 @@ export function SqlConsoleShell() {
               <div className="shrink-0 border-b border-border bg-surface/50 max-h-36 overflow-y-auto">
                 <div className="flex items-start justify-between px-3 pt-2 pb-1">
                   <div className="flex items-center gap-1.5 text-[10px] text-accent font-semibold">
-                    <Sparkles size={10} /> AI Explanation
+                    <Sparkles size={10} /> {t("aiExplanationPlan")}
                   </div>
                   <button onClick={() => { setExplanation(null); setExplainError(null); }}
                     className="text-muted hover:text-fg rounded p-0.5 hover:bg-hover transition-colors">
@@ -867,7 +947,7 @@ export function SqlConsoleShell() {
                 </div>
                 {explaining && (
                   <div className="px-3 pb-2 flex items-center gap-2 text-xs text-muted">
-                    <Loader2 size={11} className="animate-spin" /> Explaining…
+                    <Loader2 size={11} className="animate-spin" /> {t("explainingAILoading")}
                   </div>
                 )}
                 {explainError && <p className="px-3 pb-2 text-xs text-danger">{explainError}</p>}
@@ -877,29 +957,44 @@ export function SqlConsoleShell() {
               </div>
             )}
             {error ? (
-              <div className="flex-1 overflow-auto p-3 flex gap-2">
-                <AlertCircle size={13} className="text-danger shrink-0 mt-0.5" />
-                <pre className="text-xs text-danger font-mono whitespace-pre-wrap break-words">{error}</pre>
+              <div className="flex-1 overflow-auto p-3 flex flex-col gap-2">
+                <div className="flex items-center justify-between border-b border-border/40 pb-1.5 shrink-0">
+                  <span className="text-[10px] text-danger font-semibold uppercase tracking-wider flex items-center gap-1">
+                    <AlertCircle size={11} /> {t("executionError")}
+                  </span>
+                  <button
+                    onClick={handleAiQuickFix}
+                    disabled={aiFixing || !connId}
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-sm)] border border-danger/40 text-[11px] font-medium text-danger hover:bg-danger/10 disabled:opacity-50 transition-colors cursor-pointer"
+                    title="Fix this query with AI"
+                  >
+                    {aiFixing ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+                    {t("fixWithAi")}
+                  </button>
+                </div>
+                <div className="flex-1 overflow-auto flex gap-2 min-h-0">
+                  <pre className="text-xs text-danger font-mono whitespace-pre-wrap break-words">{error}</pre>
+                </div>
               </div>
             ) : result ? (
               result.rows.length === 0 ? (
                 <div className="flex-1 flex items-center justify-center">
                   <span className="text-xs text-faint italic">
                     {result.rows_affected !== null
-                      ? `${result.rows_affected} row${result.rows_affected !== 1 ? "s" : ""} affected`
-                      : "Query returned no rows"}
+                      ? `${result.rows_affected} ${t("rows")} ${t("rowsAffected")}`
+                      : t("queryReturnedNoRows")}
                   </span>
                 </div>
               ) : (
                 <>
                   <div className="flex items-center justify-between px-3 py-1 bg-surface border-b border-border shrink-0">
-                    <span className="text-[10px] text-muted font-semibold uppercase tracking-wider">Results</span>
+                    <span className="text-[10px] text-muted font-semibold uppercase tracking-wider">{t("resultsPlan")}</span>
                     <button
                       onClick={handleExportResults}
                       className="flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-sm)] border border-border text-[11px] font-medium text-muted hover:text-fg hover:border-accent hover:bg-hover transition-colors"
                       title="Export results to CSV"
                     >
-                      Export CSV
+                      {t("exportCsvAction")}
                     </button>
                   </div>
                   <div className="flex-1 overflow-auto">
@@ -910,7 +1005,7 @@ export function SqlConsoleShell() {
             ) : (
               <div className="flex-1 flex items-center justify-center gap-2 text-faint">
                 <TableProperties size={13} />
-                <span className="text-xs">Run a query to see results</span>
+                <span className="text-xs">{t("noConnectionSelected")}</span>
               </div>
             )}
           </div>

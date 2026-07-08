@@ -28,7 +28,7 @@ export function CellDetailModal({ column, value, onClose }: CellDetailModalProps
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] backdrop-blur-sm anim-fade"
     >
-      <div className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-lg anim-pop w-[560px] max-w-[90vw] max-h-[80vh] flex flex-col">
+      <div className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-lg anim-pop w-[560px] h-[400px] max-w-[90vw] max-h-[90vh] flex flex-col resize overflow-hidden min-w-[360px] min-h-[250px]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <span className="text-xs font-semibold text-muted uppercase tracking-wider truncate">{column}</span>
           <div className="flex items-center gap-1 shrink-0">
@@ -37,7 +37,7 @@ export function CellDetailModal({ column, value, onClose }: CellDetailModalProps
               className="flex items-center gap-1 text-xs text-muted hover:text-fg px-2 py-1 rounded hover:bg-hover transition-colors"
               title="Copy value"
             >
-              {copied ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
+              {copied ? <Check size={15} className="text-ok" /> : <Copy size={15} />}
               {copied ? "Copied" : "Copy"}
             </button>
             <button
@@ -45,7 +45,7 @@ export function CellDetailModal({ column, value, onClose }: CellDetailModalProps
               className="p-1 rounded text-muted hover:text-fg hover:bg-hover transition-colors"
               title="Close (Esc)"
             >
-              <X size={14} />
+              <X size={18} />
             </button>
           </div>
         </div>

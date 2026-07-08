@@ -1,12 +1,14 @@
 import { X, Loader2, CheckCircle2, AlertCircle, Trash2, Globe } from "lucide-react";
 import { Button } from "../../shared/ui/Button";
 import { useBackupStore } from "../../stores/backupStore";
+import { useTranslation } from "../../hooks/useTranslation";
 
 interface Props {
   onClose: () => void;
 }
 
 export function BackupJobsModal({ onClose }: Props) {
+  const { t } = useTranslation();
   const { jobs, clearHistory } = useBackupStore();
 
   const getFileName = (path: string) => {
@@ -16,28 +18,28 @@ export function BackupJobsModal({ onClose }: Props) {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "running":
-        return <Loader2 size={16} className="animate-spin text-accent" />;
+        return <Loader2 size={18} className="animate-spin text-accent" />;
       case "completed":
-        return <CheckCircle2 size={16} className="text-success" />;
+        return <CheckCircle2 size={18} className="text-success" />;
       case "failed":
-        return <AlertCircle size={16} className="text-danger" />;
+        return <AlertCircle size={18} className="text-danger" />;
       default:
         return null;
     }
   };
 
-  const labelCls = "block text-[10px] font-bold tracking-wider text-muted uppercase";
+  const labelCls = "block text-xs font-bold tracking-wider text-muted uppercase";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px] animate-fade-in">
-      <div className="w-[580px] max-h-[80vh] bg-surface border border-border rounded-[var(--radius-lg)] shadow-2xl flex flex-col anim-slide-up overflow-hidden">
+      <div className="w-[580px] h-[450px] max-h-[90vh] bg-surface border border-border rounded-[var(--radius-lg)] shadow-2xl flex flex-col anim-slide-up resize overflow-hidden min-w-[400px] min-h-[300px]">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-fg">Backup Tasks Manager</span>
+            <span className="text-sm font-semibold text-fg">{t("backupManagerTitle")}</span>
             {jobs.some((j) => j.status === "running") && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-accent/10 border border-accent/20 text-[9px] font-bold text-accent animate-pulse uppercase">
-                Active Tasks
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-accent/10 border border-accent/20 text-xs font-bold text-accent animate-pulse uppercase">
+                {t("activeTasksBadge")}
               </span>
             )}
           </div>
@@ -45,31 +47,31 @@ export function BackupJobsModal({ onClose }: Props) {
             onClick={onClose}
             className="p-1 rounded-sm text-muted hover:text-fg hover:bg-hover transition-colors"
           >
-            <X size={14} />
+            <X size={18} />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-4 flex-1 overflow-y-auto min-h-[300px] flex flex-col">
+        <div className="p-4 flex-1 overflow-y-auto flex flex-col">
           {jobs.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-              <Globe size={32} className="text-muted/40 mb-3" />
-              <p className="text-xs text-muted font-medium">No backup tasks recorded yet</p>
-              <p className="text-[10px] text-faint mt-1 max-w-[280px]">
-                Start a backup from any database connection or schema tree node to track its background progress here.
+              <Globe size={36} className="text-muted/40 mb-3" />
+              <p className="text-xs text-muted font-medium">{t("noBackupTasksRecorded")}</p>
+              <p className="text-xs text-faint mt-1 max-w-[280px]">
+                {t("backupTasksDesc")}
               </p>
             </div>
           ) : (
             <div className="space-y-3 flex-1">
               <div className="flex justify-between items-center pb-1">
-                <label className={labelCls}>Tasks History</label>
+                <label className={labelCls}>{t("tasksHistoryLabel")}</label>
                 {jobs.some((j) => j.status !== "running") && (
                   <button
                     onClick={clearHistory}
-                    className="text-[10px] text-muted hover:text-danger flex items-center gap-1 transition-colors cursor-pointer"
+                    className="text-xs text-muted hover:text-danger flex items-center gap-1 transition-colors cursor-pointer"
                   >
-                    <Trash2 size={11} />
-                    <span>Clear completed</span>
+                    <Trash2 size={14} />
+                    <span>{t("clearCompletedBtn")}</span>
                   </button>
                 )}
               </div>
@@ -85,28 +87,28 @@ export function BackupJobsModal({ onClose }: Props) {
                         <span className="font-mono text-xs text-fg font-semibold truncate block">
                           {getFileName(job.outputPath)}
                         </span>
-                        <span className="text-[9px] text-faint font-medium">
+                        <span className="text-xs text-faint font-medium">
                           {new Date(job.startTime).toLocaleTimeString()}
                         </span>
                       </div>
-                      <div className="text-[10px] text-muted flex items-center gap-1.5 flex-wrap">
+                      <div className="text-xs text-muted flex items-center gap-1.5 flex-wrap">
                         <span className="text-accent font-medium">
-                          {job.dbName ? `DB: ${job.dbName}` : "Connection"}
+                          {job.dbName ? `${t("databaseLabel")}: ${job.dbName}` : t("backupTitleConn")}
                         </span>
                         <span className="text-faint">•</span>
                         <span className="truncate max-w-[280px]" title={job.outputPath}>
-                          Path: {job.outputPath}
+                          {t("pathLabel")}: {job.outputPath}
                         </span>
                       </div>
                       {job.error && (
-                        <div className="text-[10px] text-danger font-medium pt-1">
+                        <div className="text-xs text-danger font-medium pt-1">
                           Error: {job.error}
                         </div>
                       )}
                     </div>
                     <div className="shrink-0 flex items-center pt-0.5">
                       <div
-                        className={`flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-sm)] border text-[10px] font-medium capitalize ${
+                        className={`flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-sm)] border text-xs font-medium capitalize ${
                           job.status === "running"
                             ? "bg-accent/5 border-accent/10 text-accent"
                             : job.status === "completed"
@@ -128,7 +130,7 @@ export function BackupJobsModal({ onClose }: Props) {
         {/* Footer */}
         <div className="flex items-center justify-end px-4 py-3 border-t border-border shrink-0">
           <Button variant="ghost" size="sm" onClick={onClose}>
-            Close
+            {t("closeBtn")}
           </Button>
         </div>
       </div>

@@ -42,7 +42,7 @@ export function CellExpandModal({ column, value, onClose }: CellExpandModalProps
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] backdrop-blur-sm anim-fade">
       <div
-        className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-lg anim-pop w-[560px] max-w-[95vw] max-h-[80vh] flex flex-col"
+        className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-lg anim-pop w-[560px] h-[400px] max-w-[95vw] max-h-[90vh] flex flex-col resize overflow-hidden min-w-[360px] min-h-[250px]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
@@ -62,14 +62,14 @@ export function CellExpandModal({ column, value, onClose }: CellExpandModalProps
               }}
               className="flex items-center gap-1 text-[11px] text-muted hover:text-fg bg-elevated hover:bg-hover border border-border px-2 py-1 rounded-lg transition-all"
             >
-              <Copy size={10} />
+              <Copy size={14} />
               Copy
             </button>
             <button
               onClick={onClose}
               className="p-1 rounded text-muted hover:text-fg hover:bg-hover transition-colors"
             >
-              <X size={14} />
+              <X size={18} />
             </button>
           </div>
         </div>

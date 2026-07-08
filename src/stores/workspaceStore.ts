@@ -9,37 +9,37 @@ export interface OpenObject {
   table: string;       // raw table/collection name for backend calls
   label: string;       // display name
   engine: DbType;
-  database?: string;   // MongoDB only: the db this collection lives in
+  database?: string;   // database scope
+  type?: "table" | "er-diagram" | "sql-console";
 }
 
 interface WorkspaceState {
   openObjects: OpenObject[];
   activeObjectId: string | null;
-  consoleOpen: boolean;
   subView: ObjectSubView;
   pendingFilters: Map<string, string>; // objectId -> filter string
+  dataViewModes: Map<string, "table" | "tree" | "text">; // objectId -> view mode
   openObject: (obj: OpenObject) => void;
   closeObject: (id: string) => void;
   setActiveObject: (id: string) => void;
-  setConsoleOpen: (open: boolean) => void;
   setSubView: (v: ObjectSubView) => void;
   setPendingFilter: (objectId: string, filter: string) => void;
   getPendingFilter: (objectId: string) => string | undefined;
   clearPendingFilter: (objectId: string) => void;
+  setDataViewMode: (objectId: string, mode: "table" | "tree" | "text") => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   openObjects: [],
   activeObjectId: null,
-  consoleOpen: false,
   subView: "data",
   pendingFilters: new Map(),
+  dataViewModes: new Map(),
   openObject: (obj) => {
     const exists = get().openObjects.some((o) => o.id === obj.id);
     set({
       openObjects: exists ? get().openObjects : [...get().openObjects, obj],
       activeObjectId: obj.id,
-      consoleOpen: false,
     });
   },
   closeObject: (id) => {
@@ -48,7 +48,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ openObjects: remaining, activeObjectId: active });
   },
   setActiveObject: (id) => set({ activeObjectId: id }),
-  setConsoleOpen: (open) => set({ consoleOpen: open }),
   setSubView: (v) => set({ subView: v }),
   setPendingFilter: (objectId, filter) => {
     set((state) => {
@@ -65,6 +64,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const next = new Map(state.pendingFilters);
       next.delete(objectId);
       return { pendingFilters: next };
+    });
+  },
+  setDataViewMode: (objectId, mode) => {
+    set((state) => {
+      const next = new Map(state.dataViewModes);
+      next.set(objectId, mode);
+      return { dataViewModes: next };
     });
   },
 }));

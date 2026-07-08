@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Database, Table2, Plug, PlugZap, Pencil, Trash2, ChevronRight, Loader2, Search, RefreshCw, Download, Upload, MoreVertical, Copy } from "lucide-react";
+import { Database, Table2, Plug, PlugZap, Pencil, Trash2, ChevronRight, Loader2, Search, RefreshCw, Download, Upload, MoreVertical, Copy, Terminal, GitFork, Layers } from "lucide-react";
 import { useConnectionStore } from "../connection/connectionStore";
 import { loadSavedConnections, connectConnection, disconnectConnection, deleteSavedConnection } from "../connection/connectionApi";
 import { ENGINE_META } from "../connection/engineMeta";
@@ -51,6 +51,21 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
   const toggleDropdown = (e: React.MouseEvent, key: string) => {
     e.stopPropagation();
     setActiveDropdown((prev) => (prev === key ? null : key));
+  };
+
+  const getTableIcon = (engine: string) => {
+    switch (engine) {
+      case "mongodb":
+        return <Layers size={12} className="text-emerald-400 shrink-0" />;
+      case "redis":
+        return <Database size={12} className="text-red-400 shrink-0" />;
+      case "postgres":
+        return <Table2 size={12} className="text-sky-400 shrink-0" />;
+      case "mysql":
+        return <Table2 size={12} className="text-orange-400 shrink-0" />;
+      default:
+        return <Table2 size={12} className="text-muted shrink-0" />;
+    }
   };
 
   useEffect(() => {
@@ -418,6 +433,10 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
             <div className="group w-full flex items-center gap-1.5 px-1 py-0.5">
               <button
                 onClick={() => (active ? expandConn(conn) : handleConnect(conn.id))}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  onEdit?.(conn);
+                }}
                 className="flex items-center gap-1.5 flex-1 min-w-0 py-1.5 px-1.5 rounded-[var(--radius-sm)] hover:bg-hover text-xs text-fg transition-colors duration-[var(--dur-fast)]"
               >
                 <ChevronRight
@@ -470,6 +489,45 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
                         onMouseDown={(e) => e.stopPropagation()}
                         className="absolute right-0 top-full mt-1 z-50 bg-elevated border border-border rounded-[var(--radius-md)] shadow-lg anim-pop py-1 w-[150px]"
                       >
+                        {active && (
+                          <>
+                            <button
+                              onClick={() => {
+                                openObject({
+                                  id: `console:${conn.id}:${conn.db_type === "postgres" ? "public" : "default"}`,
+                                  connId: conn.id,
+                                  table: "",
+                                  label: `Console: ${conn.name}`,
+                                  engine: conn.db_type,
+                                  type: "sql-console",
+                                });
+                                setActiveDropdown(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-fg hover:bg-hover transition-colors text-left cursor-pointer"
+                            >
+                              <Terminal size={11} className="shrink-0 text-accent" />
+                              <span>SQL Console</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                openObject({
+                                  id: `er:${conn.id}`,
+                                  connId: conn.id,
+                                  table: "",
+                                  label: `ER Diagram: ${conn.name}`,
+                                  engine: conn.db_type,
+                                  type: "er-diagram",
+                                });
+                                setActiveDropdown(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-fg hover:bg-hover transition-colors text-left cursor-pointer"
+                            >
+                              <GitFork size={11} className="shrink-0 text-accent rotate-90" />
+                              <span>ER Diagram</span>
+                            </button>
+                            <div className="my-1 border-t border-border"></div>
+                          </>
+                        )}
                         {active ? (
                           <button
                             onClick={() => handleDisconnect(conn.id)}
@@ -559,7 +617,7 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
                                 size={11}
                                 className={`shrink-0 text-muted transition-transform duration-[var(--dur-fast)] ${dbOpen ? "rotate-90" : ""}`}
                               />
-                              <Database size={12} className="shrink-0" />
+                              <EngineIcon size={12} className={`shrink-0 ${meta.color}`} />
                               <span className="truncate">{db}</span>
                             </button>
                             <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover/db:opacity-100 focus-within:opacity-100 transition-opacity">
@@ -588,6 +646,41 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
                                   onMouseDown={(e) => e.stopPropagation()}
                                   className="absolute right-0 top-full mt-0.5 z-50 bg-elevated border border-border rounded-[var(--radius-md)] shadow-lg anim-pop py-1 w-[150px]"
                                 >
+                                  <button
+                                    onClick={() => {
+                                      openObject({
+                                        id: `console:${conn.id}:${db}`,
+                                        connId: conn.id,
+                                        table: "",
+                                        label: `Console: ${db}`,
+                                        engine: conn.db_type,
+                                        type: "sql-console",
+                                      });
+                                      setActiveDropdown(null);
+                                    }}
+                                    className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-fg hover:bg-hover transition-colors text-left cursor-pointer"
+                                  >
+                                    <Terminal size={11} className="shrink-0 text-accent" />
+                                    <span>SQL Console</span>
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      openObject({
+                                        id: `er:${conn.id}:${db}`,
+                                        connId: conn.id,
+                                        table: "",
+                                        label: `ER Diagram: ${db}`,
+                                        engine: conn.db_type,
+                                        type: "er-diagram",
+                                      });
+                                      setActiveDropdown(null);
+                                    }}
+                                    className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-fg hover:bg-hover transition-colors text-left cursor-pointer"
+                                  >
+                                    <GitFork size={11} className="shrink-0 text-accent rotate-90" />
+                                    <span>ER Diagram</span>
+                                  </button>
+                                  <div className="my-1 border-t border-border"></div>
                                   <button
                                     onClick={() => {
                                       refreshDb(conn.id, db);
@@ -691,7 +784,7 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
                                                 selected ? "bg-accent/10 text-fg font-medium" : "text-muted hover:bg-hover hover:text-fg"
                                               }`}
                                             >
-                                              <Table2 size={12} />
+                                              {getTableIcon(conn.db_type)}
                                               <span className="truncate">{t.name}</span>
                                             </button>
                                             <div className="shrink-0 opacity-0 group-hover/tbl:opacity-100 focus-within:opacity-100 transition-opacity">
@@ -849,7 +942,7 @@ export function ExplorerTree({ onEdit }: ExplorerTreeProps) {
                                   selected ? "bg-accent/10 text-fg font-medium" : "text-muted hover:bg-hover hover:text-fg"
                                 }`}
                               >
-                                <Table2 size={12} />
+                                {getTableIcon(conn.db_type)}
                                 <span className="truncate">{t.name}</span>
                               </button>
                               <div className="shrink-0 opacity-0 group-hover/tbl:opacity-100 focus-within:opacity-100 transition-opacity">

@@ -118,3 +118,32 @@ body { background: var(--bg); color: var(--fg); }
 /* ── Cell text selectable, header not ───────────────────────────────── */
 td { user-select: text; }
 th { user-select: none; }
+
+/* ── React Flow ER Diagram Custom High-Contrast Edges ──────────────── */
+.react-flow__edge-path {
+  stroke-width: 2px !important;
+}
+.react-flow__edge.sql-edge .react-flow__edge-path {
+  stroke: #3b82f6 !important; /* Brighter Blue */
+}
+.react-flow__edge.virtual-edge .react-flow__edge-path {
+  stroke: #f59e0b !important; /* Amber Orange */
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--accent) !important;
+  stroke-width: 3px !important;
+}
+.react-flow__connection-path {
+  stroke: var(--accent) !important;
+  stroke-width: 2px !important;
+}
+
+/* ── CodeMirror Font Settings Overrides ────────────────────────────── */
+.cm-editor {
+  font-family: var(--font-mono, monospace) !important;
+  font-size: var(--editor-font-size, 14px) !important;
+}
+.cm-scroller {
+  font-family: inherit !important;
+  font-size: inherit !important;
+}

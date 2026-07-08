@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { Loader2, ChevronRight, ChevronDown, Trash2, Copy, Check, AlertTriangle, Pencil, X, ChevronLeft, Download } from "lucide-react";
+import { Loader2, ChevronRight, ChevronDown, Trash2, Copy, Check, AlertTriangle, Pencil, X, ChevronLeft, Download, MoreVertical } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { save as nativeSave } from "@tauri-apps/plugin-dialog";
 import type { QueryResult, ColumnInfo } from "../../shared/types";
 import type { OpenObject } from "../../stores/workspaceStore";
 import { FilterBar } from "../../components/FilterBar";
 import { ensureMongoDb, describeTable, countRows, runQuery } from "./objectApi";
+import { insertRow, updateRow, deleteRow } from "./editApi";
 import { useToast } from "../../components/Toast";
 
 // ── JSON tree ─────────────────────────────────────────────────────────────────
@@ -18,24 +19,147 @@ function detectBsonType(value: unknown): string | null {
   return null;
 }
 
-function JsonNode({ value, depth = 0 }: { value: unknown; depth?: number }) {
+function JsonNode({
+  value,
+  depth = 0,
+  onChange,
+  isEditable = false,
+}: {
+  value: unknown;
+  depth?: number;
+  onChange?: (newValue: unknown) => void;
+  isEditable?: boolean;
+}) {
   const [open, setOpen] = useState(depth < 1);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValueText, setEditValueText] = useState("");
+  const [updating, setUpdating] = useState(false);
 
-  if (value === null || value === undefined)
-    return <span className="text-[10px] text-muted italic select-none">null</span>;
-  if (typeof value === "boolean")
-    return <span className={`font-mono text-[11px] ${value ? "text-emerald-400" : "text-rose-400"}`}>{String(value)}</span>;
-  if (typeof value === "number")
-    return <span className="text-amber-300 font-mono text-[11px]">{value}</span>;
-  if (typeof value === "string") {
-    const display = value.length > 90 ? `${value.slice(0, 90)}…` : value;
-    return <span className="text-emerald-400 font-mono text-[11px] break-all" title={value.length > 90 ? value : undefined}>&quot;{display}&quot;</span>;
+  const handleSaveLocal = async () => {
+    let parsedVal: unknown;
+    try {
+      parsedVal = JSON.parse(editValueText);
+    } catch {
+      if (editValueText === "true") parsedVal = true;
+      else if (editValueText === "false") parsedVal = false;
+      else if (!isNaN(Number(editValueText)) && editValueText.trim() !== "") parsedVal = Number(editValueText);
+      else parsedVal = editValueText;
+    }
+    setUpdating(true);
+    try {
+      if (onChange) {
+        await onChange(parsedVal);
+      }
+      setIsEditing(false);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const renderPrimitive = () => {
+    let element: React.ReactNode;
+    if (value === null || value === undefined)
+      element = <span className="text-[10px] text-muted italic select-none">null</span>;
+    else if (typeof value === "boolean")
+      element = <span className={`font-mono text-[11px] ${value ? "text-emerald-400" : "text-rose-400"}`}>{String(value)}</span>;
+    else if (typeof value === "number")
+      element = <span className="text-cyan-400 font-mono text-[11px]">{value}</span>;
+    else if (typeof value === "string") {
+      const bsonType = detectBsonType(value);
+      if (bsonType === "ObjectId") {
+        element = (
+          <span className="font-mono text-[11px] break-all">
+            <span className="text-purple-400 font-medium">ObjectId</span>
+            <span className="text-muted">(</span>
+            <span className="text-emerald-400">&quot;{value}&quot;</span>
+            <span className="text-muted">)</span>
+          </span>
+        );
+      } else if (bsonType === "Date") {
+        element = (
+          <span className="font-mono text-[11px] break-all">
+            <span className="text-purple-400 font-medium">ISODate</span>
+            <span className="text-muted">(</span>
+            <span className="text-emerald-400">&quot;{value}&quot;</span>
+            <span className="text-muted">)</span>
+          </span>
+        );
+      } else {
+        const display = value.length > 90 ? `${value.slice(0, 90)}…` : value;
+        element = <span className="text-emerald-400 font-mono text-[11px] break-all" title={value.length > 90 ? value : undefined}>&quot;{display}&quot;</span>;
+      }
+    } else {
+      element = <span className="text-fg font-mono text-[11px]">{String(value)}</span>;
+    }
+
+    if (isEditable) {
+      return (
+        <span
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            setIsEditing(true);
+            setEditValueText(typeof value === "object" ? JSON.stringify(value) : String(value));
+          }}
+          className="cursor-pointer hover:bg-hover/50 px-1 rounded transition-colors"
+          title="Double-click to edit value"
+        >
+          {element}
+        </span>
+      );
+    }
+    return element;
+  };
+
+  if (isEditing) {
+    return (
+      <div className="inline-flex items-center gap-1.5 min-w-0" onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+        <input
+          type="text"
+          value={editValueText}
+          onChange={(e) => setEditValueText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSaveLocal();
+            if (e.key === "Escape") setIsEditing(false);
+          }}
+          className="bg-elevated border border-border rounded px-1.5 py-0.5 text-[11px] font-mono text-fg outline-none w-48 focus:border-accent"
+          autoFocus
+          disabled={updating}
+        />
+        <button
+          onClick={handleSaveLocal}
+          disabled={updating}
+          className="p-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded transition-colors cursor-pointer shrink-0"
+          title="Save"
+        >
+          {updating ? <Loader2 size={10} className="animate-spin" /> : <Check size={11} />}
+        </button>
+        <button
+          onClick={() => setIsEditing(false)}
+          disabled={updating}
+          className="p-1 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded transition-colors cursor-pointer shrink-0"
+          title="Cancel"
+        >
+          <X size={11} />
+        </button>
+      </div>
+    );
   }
+
+  if (value === null || value === undefined || typeof value !== "object") {
+    return renderPrimitive();
+  }
+
   if (Array.isArray(value)) {
     if (!value.length) return <span className="text-muted font-mono text-[11px]">[]</span>;
     return (
       <span>
-        <button onClick={() => setOpen(v => !v)} className="inline-flex items-center gap-0.5 text-muted hover:text-fg font-mono text-[11px] cursor-pointer">
+        <button
+          onClick={() => setOpen(v => !v)}
+          onDoubleClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-0.5 text-muted hover:text-fg font-mono text-[11px] cursor-pointer"
+        >
           {open ? <ChevronDown size={9} /> : <ChevronRight size={9} />}
           <span className="text-faint ml-0.5">Array({value.length})</span>
         </button>
@@ -44,7 +168,16 @@ function JsonNode({ value, depth = 0 }: { value: unknown; depth?: number }) {
             {value.map((item, i) => (
               <div key={i} className="flex gap-1.5 items-start">
                 <span className="text-faint font-mono text-[10px] shrink-0 mt-0.5">{i}</span>
-                <JsonNode value={item} depth={depth + 1} />
+                <JsonNode
+                  value={item}
+                  depth={depth + 1}
+                  isEditable={isEditable}
+                  onChange={(childNewValue) => {
+                    const updatedValue = [...value];
+                    updatedValue[i] = childNewValue;
+                    onChange?.(updatedValue);
+                  }}
+                />
               </div>
             ))}
           </div>
@@ -52,29 +185,40 @@ function JsonNode({ value, depth = 0 }: { value: unknown; depth?: number }) {
       </span>
     );
   }
-  if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>);
-    if (!entries.length) return <span className="text-muted font-mono text-[11px]">{"{}"}</span>;
-    return (
-      <span>
-        <button onClick={() => setOpen(v => !v)} className="inline-flex items-center gap-0.5 text-muted hover:text-fg font-mono text-[11px] cursor-pointer">
-          {open ? <ChevronDown size={9} /> : <ChevronRight size={9} />}
-          <span className="text-faint ml-0.5">Object({entries.length})</span>
-        </button>
-        {open && (
-          <div className="ml-3 mt-0.5 space-y-0.5 border-l border-border pl-2">
-            {entries.map(([k, v]) => (
-              <div key={k} className="flex gap-1.5 items-start">
-                <span className="text-sky-400/80 font-mono text-[10px] shrink-0 mt-0.5">{k}:</span>
-                <JsonNode value={v} depth={depth + 1} />
-              </div>
-            ))}
-          </div>
-        )}
-      </span>
-    );
-  }
-  return <span className="text-fg font-mono text-[11px]">{String(value)}</span>;
+
+  // Object
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (!entries.length) return <span className="text-muted font-mono text-[11px]">{"{}"}</span>;
+  return (
+    <span>
+      <button
+        onClick={() => setOpen(v => !v)}
+        onDoubleClick={(e) => e.stopPropagation()}
+        className="inline-flex items-center gap-0.5 text-muted hover:text-fg font-mono text-[11px] cursor-pointer"
+      >
+        {open ? <ChevronDown size={9} /> : <ChevronRight size={9} />}
+        <span className="text-faint ml-0.5">Object({entries.length})</span>
+      </button>
+      {open && (
+        <div className="ml-3 mt-0.5 space-y-0.5 border-l border-border pl-2">
+          {entries.map(([k, v]) => (
+            <div key={k} className="flex gap-1.5 items-start">
+              <span className="text-fg/90 font-mono text-[10px] shrink-0 mt-0.5">{k}:</span>
+              <JsonNode
+                value={v}
+                depth={depth + 1}
+                isEditable={isEditable}
+                onChange={(childNewValue) => {
+                  const updatedValue = { ...value, [k]: childNewValue };
+                  onChange?.(updatedValue);
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </span>
+  );
 }
 
 // ── Document delete modal ─────────────────────────────────────────────────────
@@ -226,19 +370,23 @@ function EditDocumentModal({ doc, onSave, onCancel }: {
 function DocumentCard({
   doc,
   index,
+  primaryKey = "_id",
   onDelete,
   onEdit,
   onUpdateField,
   selectedIds,
   setSelectedIds,
+  isMongo = false,
 }: {
   doc: Record<string, unknown>;
   index: number;
+  primaryKey?: string;
   onDelete?: (doc: Record<string, unknown>) => Promise<void>;
   onEdit?: (idHex: string, json: string) => Promise<void>;
   onUpdateField?: (idHex: string, key: string, newValue: unknown) => Promise<void>;
   selectedIds: Set<string>;
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  isMongo?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -249,6 +397,21 @@ function DocumentCard({
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValueText, setEditValueText] = useState("");
   const [fieldUpdating, setFieldUpdating] = useState(false);
+
+  const [activeFieldDropdown, setActiveFieldDropdown] = useState<string | null>(null);
+  const [isAddingField, setIsAddingField] = useState(false);
+  const [newFieldName, setNewFieldName] = useState("");
+  const [newFieldType, setNewFieldType] = useState("string");
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (!activeFieldDropdown) return;
+    const handleGlobalClick = () => {
+      setActiveFieldDropdown(null);
+    };
+    window.addEventListener("click", handleGlobalClick);
+    return () => window.removeEventListener("click", handleGlobalClick);
+  }, [activeFieldDropdown]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(JSON.stringify(doc, null, 2));
@@ -266,7 +429,7 @@ function DocumentCard({
 
   const handleSaveField = async (key: string) => {
     if (!onUpdateField) return;
-    const idHex = doc._id ? String(doc._id) : "";
+    const idHex = doc[primaryKey] ? String(doc[primaryKey]) : "";
     if (!idHex) return;
 
     let parsedVal: unknown;
@@ -290,15 +453,98 @@ function DocumentCard({
     }
   };
 
+  const handleDeleteField = async (key: string) => {
+    if (!onEdit) return;
+    const { [key]: _, ...updatedDoc } = doc;
+    const idHex = doc[primaryKey] ? String(doc[primaryKey]) : "";
+    if (idHex) {
+      try {
+        await onEdit(idHex, JSON.stringify(updatedDoc));
+        toast("Field deleted successfully", "success");
+      } catch (e) {
+        console.error(e);
+        toast(`Delete failed: ${e}`, "error");
+      }
+    }
+  };
+
+  const handleChangeFieldType = async (key: string, newType: string) => {
+    if (!onEdit) return;
+    const currentValue = doc[key];
+    let convertedValue: unknown;
+
+    if (newType === "string") {
+      convertedValue = typeof currentValue === "object" ? JSON.stringify(currentValue) : String(currentValue);
+    } else if (newType === "number") {
+      const num = Number(currentValue);
+      convertedValue = isNaN(num) ? 0 : num;
+    } else if (newType === "boolean") {
+      convertedValue = Boolean(currentValue);
+    } else if (newType === "date") {
+      convertedValue = new Date().toISOString();
+    } else if (newType === "objectid") {
+      convertedValue = Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+    } else if (newType === "null") {
+      convertedValue = null;
+    } else if (newType === "object") {
+      convertedValue = {};
+    } else if (newType === "array") {
+      convertedValue = [];
+    }
+
+    const updatedDoc = { ...doc, [key]: convertedValue };
+    const idHex = doc[primaryKey] ? String(doc[primaryKey]) : "";
+    if (idHex) {
+      try {
+        await onEdit(idHex, JSON.stringify(updatedDoc));
+        toast(`Field type changed to ${newType}`, "success");
+      } catch (e) {
+        console.error(e);
+        toast(`Type change failed: ${e}`, "error");
+      }
+    }
+  };
+
+  const handleAddFieldSave = async () => {
+    if (!newFieldName.trim() || !onEdit) return;
+    const name = newFieldName.trim();
+    if (name in doc) {
+      toast("Field already exists", "error");
+      return;
+    }
+    let defaultValue: unknown = "";
+    if (newFieldType === "number") defaultValue = 0;
+    else if (newFieldType === "boolean") defaultValue = false;
+    else if (newFieldType === "date") defaultValue = new Date().toISOString();
+    else if (newFieldType === "objectid") {
+      defaultValue = Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+    } else if (newFieldType === "null") defaultValue = null;
+    else if (newFieldType === "object") defaultValue = {};
+    else if (newFieldType === "array") defaultValue = [];
+
+    const updatedDoc = { ...doc, [name]: defaultValue };
+    const idHex = doc[primaryKey] ? String(doc[primaryKey]) : "";
+    if (idHex) {
+      try {
+        await onEdit(idHex, JSON.stringify(updatedDoc));
+        setIsAddingField(false);
+        toast("Field added successfully", "success");
+      } catch (e) {
+        console.error(e);
+        toast(`Add field failed: ${e}`, "error");
+      }
+    }
+  };
+
   const entries = Object.entries(doc);
-  const idVal = doc._id !== undefined ? String(doc._id) : null;
+  const idVal = doc[primaryKey] !== undefined ? String(doc[primaryKey]) : null;
   const isSelected = idVal ? selectedIds.has(idVal) : false;
 
   const displayEntries = cardExpanded ? entries : entries.slice(0, 5);
 
   return (
     <>
-      <div className={`bg-surface/30 border rounded-xl hover:border-muted transition-colors group/card ${isSelected ? "border-accent/40 bg-accent/5" : "border-border"}`}>
+      <div className={`bg-surface/30 border rounded-xl transition-colors group/card ${isSelected ? "border-accent/40 bg-accent/5" : "border-border"}`}>
         <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/60">
           <div className="flex items-center gap-2 min-w-0">
             {idVal && (
@@ -367,7 +613,7 @@ function DocumentCard({
             return (
               <div key={key} className="flex gap-2 items-start group/field min-h-5">
                 <div className="flex items-center gap-1 shrink-0 w-32">
-                  <span className="text-[11px] font-mono text-sky-400/80 truncate" title={key}>
+                  <span className="text-[11px] font-mono text-fg/90 truncate" title={key}>
                     {key}
                   </span>
                   {badge && <span className="text-[9px] text-muted bg-border/50 px-1 rounded shrink-0">{badge}</span>}
@@ -406,9 +652,22 @@ function DocumentCard({
                 ) : (
                   <div className="flex-1 min-w-0 flex items-center gap-1">
                     <div className="flex-1 min-w-0">
-                      <JsonNode value={value} depth={0} />
+                      <JsonNode
+                        value={value}
+                        depth={0}
+                        isEditable={(isMongo || key !== primaryKey) && !!onUpdateField}
+                        onChange={(newValue) => {
+                          if (onUpdateField) {
+                            const idHex = doc[primaryKey] ? String(doc[primaryKey]) : "";
+                            if (idHex) {
+                              return onUpdateField(idHex, key, newValue);
+                            }
+                          }
+                          return Promise.resolve();
+                        }}
+                      />
                     </div>
-                    {key !== "_id" && onUpdateField && (
+                    {(isMongo || key !== primaryKey) && onUpdateField && (
                       <button
                         onClick={() => {
                           setEditingField(key);
@@ -419,6 +678,62 @@ function DocumentCard({
                       >
                         <Pencil size={9} />
                       </button>
+                    )}
+                    {isMongo && onEdit && (
+                      <div className="relative shrink-0 flex items-center">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveFieldDropdown(activeFieldDropdown === key ? null : key);
+                          }}
+                          className={`opacity-0 group-hover/field:opacity-100 p-0.5 rounded hover:bg-hover text-muted hover:text-fg transition-all cursor-pointer ${
+                            activeFieldDropdown === key ? "opacity-100 bg-hover text-fg" : ""
+                          }`}
+                          title="Field Actions"
+                        >
+                          <MoreVertical size={9} />
+                        </button>
+
+                        {activeFieldDropdown === key && (
+                          <div
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute right-0 top-full mt-1 z-50 bg-elevated border border-border rounded-[var(--radius-md)] shadow-lg anim-pop py-1 w-[130px] text-left"
+                          >
+                            <div className="px-2 py-0.5 text-[9px] text-muted uppercase font-semibold border-b border-border/55 mb-1 select-none">
+                              Change Type
+                            </div>
+                            {(["string", "number", "boolean", "date", "objectid", "null", "object", "array"] as const).map((t) => (
+                              <button
+                                key={t}
+                                onClick={() => {
+                                  handleChangeFieldType(key, t);
+                                  setActiveFieldDropdown(null);
+                                }}
+                                className="w-full flex items-center justify-between px-2.5 py-1 text-[11px] text-fg hover:bg-hover transition-colors cursor-pointer text-left font-mono"
+                              >
+                                <span>{t}</span>
+                                {detectBsonType(value) === t || (t === "string" && typeof value === "string" && !detectBsonType(value)) || (t === typeof value && !detectBsonType(value) && value !== null) || (t === "null" && value === null) ? (
+                                  <span className="text-emerald-400 text-[10px]">✓</span>
+                                ) : null}
+                              </button>
+                            ))}
+                            <div className="my-1 border-t border-border"></div>
+                            {key !== primaryKey && (
+                              <button
+                                onClick={() => {
+                                  handleDeleteField(key);
+                                  setActiveFieldDropdown(null);
+                                }}
+                                className="w-full flex items-center gap-2 px-2.5 py-1 text-[11px] text-danger hover:bg-hover transition-colors text-left cursor-pointer"
+                              >
+                                <Trash2 size={11} className="shrink-0" />
+                                <span>Delete Field</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -441,6 +756,61 @@ function DocumentCard({
             >
               Show less
             </button>
+          )}
+          {isMongo && onEdit && (
+            <div className="pl-32 pt-2 border-t border-border/30 mt-2">
+              {isAddingField ? (
+                <div className="flex items-center gap-1.5 min-w-0" onClick={e => e.stopPropagation()}>
+                  <input
+                    type="text"
+                    placeholder="field_name"
+                    value={newFieldName}
+                    onChange={(e) => setNewFieldName(e.target.value)}
+                    className="bg-elevated border border-border rounded px-1.5 py-0.5 text-[11px] font-mono text-fg outline-none w-28 focus:border-accent"
+                    autoFocus
+                  />
+                  <select
+                    value={newFieldType}
+                    onChange={(e) => setNewFieldType(e.target.value)}
+                    className="bg-elevated border border-border rounded px-1 py-0.5 text-[11px] font-mono text-fg outline-none cursor-pointer"
+                  >
+                    <option value="string">String</option>
+                    <option value="number">Number</option>
+                    <option value="boolean">Boolean</option>
+                    <option value="date">Date</option>
+                    <option value="objectid">ObjectId</option>
+                    <option value="null">Null</option>
+                    <option value="object">Object</option>
+                    <option value="array">Array</option>
+                  </select>
+                  <button
+                    onClick={handleAddFieldSave}
+                    className="p-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded transition-colors cursor-pointer shrink-0"
+                    title="Add Field"
+                  >
+                    <Check size={11} />
+                  </button>
+                  <button
+                    onClick={() => setIsAddingField(false)}
+                    className="p-1 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded transition-colors cursor-pointer shrink-0"
+                    title="Cancel"
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    setIsAddingField(true);
+                    setNewFieldName("");
+                    setNewFieldType("string");
+                  }}
+                  className="text-[10px] text-emerald-400 hover:text-emerald-300 hover:underline font-medium cursor-pointer flex items-center gap-0.5"
+                >
+                  + Add Field
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -527,6 +897,9 @@ export function DocumentView({ object }: { object: OpenObject }) {
 
   const { toast } = useToast();
 
+  const isMongo = object.engine === "mongodb";
+  const primaryKey = columns.find((c) => c.is_pk)?.name ?? "_id";
+
   // Reset pagination/filters/selections when switching collections
   useEffect(() => {
     setPage(0);
@@ -548,7 +921,7 @@ export function DocumentView({ object }: { object: OpenObject }) {
         setColumns(cols);
         setTotalRows(total);
       } catch (e) {
-        console.error("Failed to load MongoDB metadata:", e);
+        console.error("Failed to load metadata:", e);
       }
     };
     fetchMeta();
@@ -561,9 +934,19 @@ export function DocumentView({ object }: { object: OpenObject }) {
     const fetchPage = async () => {
       try {
         await ensureMongoDb(object);
-        const filterStr = appliedFilter.trim();
-        const filterJson = filterStr || "{}";
-        const queryStr = `db.${object.table}.find(${filterJson}).limit(${pageSize}).skip(${page * pageSize})`;
+        let queryStr = "";
+        if (isMongo) {
+          const filterStr = appliedFilter.trim();
+          const filterJson = filterStr || "{}";
+          queryStr = `db.${object.table}.find(${filterJson}).limit(${pageSize}).skip(${page * pageSize})`;
+        } else {
+          const quoteIdent = (ident: string) => object.engine === "mysql" ? `\`${ident.replace(/`/g, "``")}\`` : `"${ident.replace(/"/g, '""')}"`;
+          queryStr = `SELECT * FROM ${quoteIdent(object.table)}`;
+          if (appliedFilter.trim()) {
+            queryStr += ` WHERE ${appliedFilter}`;
+          }
+          queryStr += ` LIMIT ${pageSize} OFFSET ${page * pageSize}`;
+        }
         const data = await runQuery(object.connId, queryStr);
         setResult(data);
         // Clear old selections when new page loads
@@ -576,56 +959,89 @@ export function DocumentView({ object }: { object: OpenObject }) {
       }
     };
     fetchPage();
-  }, [object.connId, object.table, page, pageSize, appliedFilter, refreshKey]);
+  }, [object.connId, object.table, object.engine, isMongo, page, pageSize, appliedFilter, refreshKey]);
 
   const handleInsert = async (json: string) => {
     const document = JSON.parse(json);
-    await invoke("insert_document", {
-      connId: object.connId,
-      input: {
-        collection: object.table,
-        document,
-      }
-    });
+    if (isMongo) {
+      await invoke("insert_document", {
+        connId: object.connId,
+        input: {
+          collection: object.table,
+          document,
+        }
+      });
+    } else {
+      await insertRow(object.connId, {
+        table: object.table,
+        values: document,
+      });
+    }
     setRefreshKey(k => k + 1);
   };
 
   const handleEdit = async (idHex: string, json: string) => {
     const replacement = JSON.parse(json);
-    await invoke("replace_document", {
-      connId: object.connId,
-      input: {
-        collection: object.table,
-        filter: { _id: idHex },
-        replacement,
-      }
-    });
+    if (isMongo) {
+      await invoke("replace_document", {
+        connId: object.connId,
+        input: {
+          collection: object.table,
+          filter: { _id: idHex },
+          replacement,
+        }
+      });
+    } else {
+      await updateRow(object.connId, {
+        table: object.table,
+        pk_column: primaryKey,
+        pk_value: idHex,
+        values: replacement,
+      });
+    }
     setRefreshKey(k => k + 1);
   };
 
   const handleUpdateField = async (idHex: string, key: string, newValue: unknown) => {
-    await invoke("update_row", {
-      connId: object.connId,
-      input: {
+    if (isMongo) {
+      await invoke("update_row", {
+        connId: object.connId,
+        input: {
+          table: object.table,
+          pk_column: "_id",
+          pk_value: idHex,
+          values: { [key]: newValue },
+        }
+      });
+    } else {
+      await updateRow(object.connId, {
         table: object.table,
-        pk_column: "_id",
+        pk_column: primaryKey,
         pk_value: idHex,
         values: { [key]: newValue },
-      }
-    });
+      });
+    }
     setRefreshKey(k => k + 1);
   };
 
   const handleDelete = async (doc: Record<string, unknown>) => {
-    const idHex = doc._id ? String(doc._id) : "";
+    const idHex = doc[primaryKey] ? String(doc[primaryKey]) : "";
     if (!idHex) return;
-    await invoke("delete_documents", {
-      connId: object.connId,
-      input: {
-        collection: object.table,
-        filter: { _id: idHex },
-      }
-    });
+    if (isMongo) {
+      await invoke("delete_documents", {
+        connId: object.connId,
+        input: {
+          collection: object.table,
+          filter: { _id: idHex },
+        }
+      });
+    } else {
+      await deleteRow(object.connId, {
+        table: object.table,
+        pk_column: primaryKey,
+        pk_value: idHex,
+      });
+    }
     setRefreshKey(k => k + 1);
   };
 
@@ -635,18 +1051,26 @@ export function DocumentView({ object }: { object: OpenObject }) {
     setLoading(true);
     try {
       const promises = Array.from(selectedIds).map(async (idHex) => {
-        await invoke("delete_documents", {
-          connId: object.connId,
-          input: {
-            collection: object.table,
-            filter: { _id: idHex },
-          }
-        });
+        if (isMongo) {
+          await invoke("delete_documents", {
+            connId: object.connId,
+            input: {
+              collection: object.table,
+              filter: { _id: idHex },
+            }
+          });
+        } else {
+          await deleteRow(object.connId, {
+            table: object.table,
+            pk_column: primaryKey,
+            pk_value: idHex,
+          });
+        }
       });
       await Promise.all(promises);
       setSelectedIds(new Set());
       setRefreshKey(k => k + 1);
-      toast(`Successfully deleted ${promises.length} documents`, "success");
+      toast(`Successfully deleted ${promises.length} items`, "success");
     } catch (e) {
       toast(`Delete failed: ${e}`, "error");
     } finally {
@@ -711,25 +1135,57 @@ export function DocumentView({ object }: { object: OpenObject }) {
 
   const allPageIds = result
     ? result.rows
-        .map((r) => (r._id !== undefined ? String(r._id) : null))
+        .map((r) => (r[primaryKey] !== undefined ? String(r[primaryKey]) : null))
         .filter((id): id is string => id !== null)
     : [];
   const isAllSelected = allPageIds.length > 0 && selectedIds.size === allPageIds.length;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* MongoDB Filter Bar */}
-      <FilterBar
-        columns={columns.map((c) => c.name)}
-        columnMeta={columns.map((c) => ({ name: c.name, data_type: c.data_type }))}
-        filters={[]}
-        onChange={() => {}}
-        onApply={handleApplyFilter}
-        isMongo={true}
-        mongoFilter={mongoFilter}
-        onMongoFilterChange={setMongoFilter}
-        hasActiveFilter={mongoFilter.trim() !== "" && mongoFilter.trim() !== "{}"}
-      />
+      {/* Filter Bar */}
+      {isMongo ? (
+        <FilterBar
+          columns={columns.map((c) => c.name)}
+          columnMeta={columns.map((c) => ({ name: c.name, data_type: c.data_type }))}
+          filters={[]}
+          onChange={() => {}}
+          onApply={handleApplyFilter}
+          isMongo={true}
+          mongoFilter={mongoFilter}
+          onMongoFilterChange={setMongoFilter}
+          hasActiveFilter={mongoFilter.trim() !== "" && mongoFilter.trim() !== "{}"}
+        />
+      ) : (
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border bg-surface shrink-0">
+          <div className="flex items-center gap-1 flex-1 max-w-xs md:max-w-md">
+            <input
+              type="text"
+              value={mongoFilter}
+              onChange={(e) => setMongoFilter(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleApplyFilter()}
+              placeholder="Filter (e.g. status = 'active')..."
+              className="w-full bg-elevated border border-border rounded-[var(--radius-sm)] text-xs px-2.5 py-1 focus:outline-none focus:border-accent text-fg"
+            />
+            {mongoFilter && (
+              <button
+                onClick={() => {
+                  setMongoFilter("");
+                  setAppliedFilter("");
+                }}
+                className="text-[10px] text-muted hover:text-fg px-1 cursor-pointer"
+              >
+                Clear
+              </button>
+            )}
+            <button
+              onClick={handleApplyFilter}
+              className="px-2.5 py-1 rounded-[var(--radius-sm)] bg-accent hover:bg-accent-strong text-on-accent text-xs font-medium transition-colors cursor-pointer"
+            >
+              Filter
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Pagination Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 border-b border-border bg-surface shrink-0">
@@ -751,10 +1207,10 @@ export function DocumentView({ object }: { object: OpenObject }) {
           )}
           <span className="text-[11px] text-muted">
             {!result || result.rows.length === 0
-              ? "0 documents"
+              ? `0 ${isMongo ? "documents" : "rows"}`
               : `${(page * pageSize + 1).toLocaleString()}–${(page * pageSize + result.rows.length).toLocaleString()} of ${
                   totalRows !== null ? totalRows.toLocaleString() : "…"
-                } documents`}
+                } ${isMongo ? "documents" : "rows"}`}
           </span>
           <div className="flex items-center gap-0.5">
             <button
@@ -781,12 +1237,12 @@ export function DocumentView({ object }: { object: OpenObject }) {
             value={pageSize}
             onChange={(e) => handlePageSizeChange(Number(e.target.value))}
             className="bg-elevated border border-border rounded-[var(--radius-sm)] text-[10px] text-muted px-1.5 py-0.5 focus:outline-none"
-            title="Documents per page"
+            title={`${isMongo ? "Documents" : "Rows"} per page`}
           >
-            <option value={50}>50 documents</option>
-            <option value={100}>100 documents</option>
-            <option value={250}>250 documents</option>
-            <option value={500}>500 documents</option>
+            <option value={50}>50 {isMongo ? "documents" : "rows"}</option>
+            <option value={100}>100 {isMongo ? "documents" : "rows"}</option>
+            <option value={250}>250 {isMongo ? "documents" : "rows"}</option>
+            <option value={500}>500 {isMongo ? "documents" : "rows"}</option>
           </select>
         </div>
         <div className="flex items-center gap-2">
@@ -794,7 +1250,7 @@ export function DocumentView({ object }: { object: OpenObject }) {
             <button
               onClick={() => setShowBulkDelete(true)}
               className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-sm)] bg-danger/10 hover:bg-danger/20 text-danger text-xs font-medium transition-colors cursor-pointer"
-              title="Delete selected documents"
+              title={`Delete selected ${isMongo ? "documents" : "rows"}`}
             >
               <Trash2 size={11} />
               Delete Selected ({selectedIds.size})
@@ -804,7 +1260,7 @@ export function DocumentView({ object }: { object: OpenObject }) {
             onClick={handleExport}
             disabled={!result || result.rows.length === 0}
             className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-sm)] text-xs text-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer disabled:opacity-30"
-            title="Export filtered documents to CSV"
+            title={`Export filtered ${isMongo ? "documents" : "rows"} to CSV`}
           >
             <Download size={11} />
             Export
@@ -832,11 +1288,11 @@ export function DocumentView({ object }: { object: OpenObject }) {
           </div>
         ) : !result || result.rows.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-muted">
-            <p className="text-sm">{result ? "No documents found" : "Select a collection to browse"}</p>
+            <p className="text-sm">{result ? (isMongo ? "No documents found" : "No rows found") : (isMongo ? "Select a collection to browse" : "Select a table to browse")}</p>
             {!showInsert && (
               <button onClick={() => setShowInsert(true)}
                 className="text-xs text-emerald-500 hover:text-emerald-400 border border-emerald-800/40 rounded-lg px-3 py-1.5 hover:bg-emerald-900/20 cursor-pointer transition-all">
-                + Insert document
+                {isMongo ? "+ Insert document" : "+ Insert row"}
               </button>
             )}
             {showInsert && (
@@ -852,11 +1308,13 @@ export function DocumentView({ object }: { object: OpenObject }) {
                 key={i}
                 doc={row as Record<string, unknown>}
                 index={page * pageSize + i}
+                primaryKey={primaryKey}
                 onDelete={handleDelete}
                 onEdit={handleEdit}
                 onUpdateField={handleUpdateField}
                 selectedIds={selectedIds}
                 setSelectedIds={setSelectedIds}
+                isMongo={isMongo}
               />
             ))}
             <div className="pt-1 pb-2">
@@ -865,7 +1323,7 @@ export function DocumentView({ object }: { object: OpenObject }) {
               ) : (
                 <button onClick={() => setShowInsert(true)}
                   className="w-full text-[11px] text-muted hover:text-fg flex items-center justify-center gap-1 py-2 rounded-xl border border-dashed border-border hover:border-muted cursor-pointer transition-all">
-                  + Insert document
+                  {isMongo ? "+ Insert document" : "+ Insert row"}
                 </button>
               )}
             </div>

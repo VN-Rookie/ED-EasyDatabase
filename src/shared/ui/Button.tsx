@@ -28,7 +28,7 @@ export function Button({ variant = "subtle", size = "md", icon: Icon, children, 
       {...rest}
       className={`inline-flex items-center justify-center font-medium transition-all duration-[var(--dur-fast)] active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none ${VARIANT[variant]} ${SIZE[size]} ${className}`}
     >
-      {Icon && <Icon size={size === "sm" ? 13 : 15} />}
+      {Icon && <Icon size={size === "sm" ? 15 : 17} />}
       {children}
     </button>
   );

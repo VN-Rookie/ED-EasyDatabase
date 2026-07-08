@@ -10,10 +10,12 @@ import { getAuditLog, exportAuditLog } from "./auditApi";
 import type { AuditEntry } from "../../shared/types";
 import { save as nativeSave } from "@tauri-apps/plugin-dialog";
 import { useToast } from "../../components/Toast";
+import { useTranslation } from "../../hooks/useTranslation";
 
 interface Props { onClose: () => void }
 
 export function SettingsShell({ onClose }: Props) {
+  const { t } = useTranslation();
   const { settings: stored, setSettings } = useSettingsStore();
   const { pref: themePref, setPref: setThemePref } = useThemeStore();
   const [draft, setDraft] = useState<Settings>(stored);
@@ -33,10 +35,10 @@ export function SettingsShell({ onClose }: Props) {
       setLoadingAudit(true);
       getAuditLog(100)
         .then(setAuditLog)
-        .catch((e) => toast(`Failed to load audit logs: ${e}`, "error"))
+        .catch((e) => toast(`${t("failedLoadAudit")}: ${e}`, "error"))
         .finally(() => setLoadingAudit(false));
     }
-  }, [activeTab, toast]);
+  }, [activeTab, toast, t]);
 
   const set = <K extends keyof Settings>(key: K, val: Settings[K]) =>
     setDraft((prev) => ({ ...prev, [key]: val }));
@@ -53,13 +55,20 @@ export function SettingsShell({ onClose }: Props) {
   const save = async () => {
     setSaving(true);
     try {
-      const savedSettings = await invoke<Settings>("save_settings", { settings: draft });
+      const sanitizedDraft = { ...draft };
+      if (sanitizedDraft.system_font_size < 9) sanitizedDraft.system_font_size = 9;
+      if (sanitizedDraft.system_font_size > 24) sanitizedDraft.system_font_size = 24;
+      if (sanitizedDraft.editor_font_size < 9) sanitizedDraft.editor_font_size = 9;
+      if (sanitizedDraft.editor_font_size > 32) sanitizedDraft.editor_font_size = 32;
+
+      const savedSettings = await invoke<Settings>("save_settings", { settings: sanitizedDraft });
       setSettings(savedSettings);
+      setDraft(savedSettings);
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
-      toast("Settings saved successfully", "success");
+      toast(t("settingsSavedSuccess"), "success");
     } catch (e) {
-      toast(`Failed to save settings: ${e}`, "error");
+      toast(`${t("settingsSavedFail")}: ${e}`, "error");
     } finally {
       setSaving(false);
     }
@@ -78,9 +87,9 @@ export function SettingsShell({ onClose }: Props) {
       if (!filePath) return;
       await invoke("save_to_file", { path: filePath, content: csv });
       const fileName = filePath.split(/[/\\]/).pop() ?? filePath;
-      toast(`Successfully exported to ${fileName}`, "success");
+      toast(`${t("successExport")} ${fileName}`, "success");
     } catch (e) {
-      toast(`Export failed: ${e}`, "error");
+      toast(`${t("exportFailed")}: ${e}`, "error");
     }
   };
 
@@ -88,12 +97,12 @@ export function SettingsShell({ onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] anim-fade">
-      <div className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-lg anim-pop w-[560px] h-[550px] flex flex-col">
+      <div className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-lg anim-pop w-[560px] h-[550px] flex flex-col resize overflow-hidden min-w-[400px] min-h-[350px]">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-          <span className="text-sm font-semibold text-fg">Settings & Management</span>
+          <span className="text-sm font-semibold text-fg">{t("settingsTitle")}</span>
           <button onClick={onClose} className="text-muted hover:text-fg transition-colors">
-            <X size={14} />
+            <X size={18} />
           </button>
         </div>
 
@@ -107,8 +116,8 @@ export function SettingsShell({ onClose }: Props) {
                 : "border-transparent text-muted hover:text-fg"
             }`}
           >
-            <SettingsIcon size={12} />
-            General Settings
+            <SettingsIcon size={16} />
+            {t("generalSettingsTab")}
           </button>
           <button
             onClick={() => setActiveTab("audit")}
@@ -118,8 +127,8 @@ export function SettingsShell({ onClose }: Props) {
                 : "border-transparent text-muted hover:text-fg"
             }`}
           >
-            <History size={12} />
-            Audit Log
+            <History size={16} />
+            {t("auditLogTab")}
           </button>
         </div>
 
@@ -127,25 +136,36 @@ export function SettingsShell({ onClose }: Props) {
         <div className="flex-1 overflow-y-auto p-4">
           {activeTab === "general" ? (
             <div className="space-y-5">
-              {/* Theme */}
+              {/* Appearance */}
               <section>
-                <h3 className="text-xs font-semibold text-fg uppercase tracking-wide mb-3">Appearance</h3>
-                <div>
-                  <label className={labelCls}>Theme</label>
-                  <Select
-                    value={themePref}
-                    onChange={(e) => setThemePref(e.target.value as "light" | "dark" | "system")}
-                    className="w-48"
-                  >
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
-                    <option value="system">System</option>
-                  </Select>
+                <h3 className="text-xs font-semibold text-fg uppercase tracking-wide mb-3">{t("appearanceSection")}</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>{t("themeLabel")}</label>
+                    <Select
+                      value={themePref}
+                      onChange={(e) => setThemePref(e.target.value as "light" | "dark" | "system")}
+                    >
+                      <option value="light">{t("themeLight")}</option>
+                      <option value="dark">{t("themeDark")}</option>
+                      <option value="system">{t("themeSystem")}</option>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>{t("languageLabel")}</label>
+                    <Select
+                      value={draft.language || "en"}
+                      onChange={(e) => set("language", e.target.value as "en" | "vi")}
+                    >
+                      <option value="en">{t("languageEn")}</option>
+                      <option value="vi">{t("languageVi")}</option>
+                    </Select>
+                  </div>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4 mt-3.5">
                   <div>
-                    <label className={labelCls}>System Font Size (px)</label>
+                    <label className={labelCls}>{t("systemFontSizeLabel")}</label>
                     <Input
                       type="number"
                       min={9}
@@ -155,7 +175,7 @@ export function SettingsShell({ onClose }: Props) {
                     />
                   </div>
                   <div>
-                    <label className={labelCls}>Console Font Size (px)</label>
+                    <label className={labelCls}>{t("consoleFontSizeLabel")}</label>
                     <Input
                       type="number"
                       min={9}
@@ -165,13 +185,43 @@ export function SettingsShell({ onClose }: Props) {
                     />
                   </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-3.5">
+                  <div>
+                    <label className={labelCls}>{t("systemFontFamilyLabel")}</label>
+                    <Select
+                      value={draft.system_font_family || ""}
+                      onChange={(e) => set("system_font_family", e.target.value)}
+                    >
+                      <option value="">{t("defaultSystemFont")}</option>
+                      <option value="Inter, system-ui, sans-serif">Inter</option>
+                      <option value="Roboto, sans-serif">Roboto</option>
+                      <option value="-apple-system, BlinkMacSystemFont, sans-serif">SF Pro / macOS Default</option>
+                      <option value="'Segoe UI', sans-serif">Segoe UI</option>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>{t("consoleFontFamilyLabel")}</label>
+                    <Select
+                      value={draft.editor_font_family || ""}
+                      onChange={(e) => set("editor_font_family", e.target.value)}
+                    >
+                      <option value="">{t("defaultMonospaceFont")}</option>
+                      <option value="JetBrains Mono, monospace">JetBrains Mono</option>
+                      <option value="Fira Code, monospace">Fira Code</option>
+                      <option value="SF Mono, Menlo, monospace">SF Mono / Menlo</option>
+                      <option value="Consolas, monospace">Consolas</option>
+                      <option value="Source Code Pro, monospace">Source Code Pro</option>
+                    </Select>
+                  </div>
+                </div>
               </section>
 
               {/* AI Backend */}
               <section>
-                <h3 className="text-xs font-semibold text-fg uppercase tracking-wide mb-3">AI Backend</h3>
+                <h3 className="text-xs font-semibold text-fg uppercase tracking-wide mb-3">{t("aiBackendSection")}</h3>
                 <div className="mb-3">
-                  <label className={labelCls}>Provider</label>
+                  <label className={labelCls}>{t("providerLabel")}</label>
                   <Select
                     value={draft.ai_backend}
                     onChange={(e) => set("ai_backend", e.target.value as Settings["ai_backend"])}
@@ -185,7 +235,7 @@ export function SettingsShell({ onClose }: Props) {
                 {draft.ai_backend === "openai" && (
                   <div className="space-y-3">
                     <div>
-                      <label className={labelCls}>Quick preset</label>
+                      <label className={labelCls}>{t("quickPresetLabel")}</label>
                       <div className="flex flex-wrap gap-1.5">
                         {OPENAI_PRESETS.map((p) => (
                           <button
@@ -203,7 +253,7 @@ export function SettingsShell({ onClose }: Props) {
                       </div>
                     </div>
                     <div>
-                      <label className={labelCls}>API Key</label>
+                      <label className={labelCls}>{t("apiKeyLabel")}</label>
                       <Input
                         type="password"
                         value={draft.openai_api_key}
@@ -214,7 +264,7 @@ export function SettingsShell({ onClose }: Props) {
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className={labelCls}>Base URL</label>
+                        <label className={labelCls}>{t("baseUrlLabel")}</label>
                         <Input
                           value={draft.openai_base_url}
                           onChange={(e) => set("openai_base_url", e.target.value)}
@@ -222,7 +272,7 @@ export function SettingsShell({ onClose }: Props) {
                         />
                       </div>
                       <div>
-                        <label className={labelCls}>Model</label>
+                        <label className={labelCls}>{t("modelLabel")}</label>
                         <Input
                           value={draft.openai_model}
                           onChange={(e) => set("openai_model", e.target.value)}
@@ -235,7 +285,7 @@ export function SettingsShell({ onClose }: Props) {
 
                 {draft.ai_backend === "claude-api" && (
                   <div>
-                    <label className={labelCls}>Anthropic API Key</label>
+                    <label className={labelCls}>{t("anthropicApiKeyLabel")}</label>
                     <Input
                       type="password"
                       value={draft.claude_api_key}
@@ -249,7 +299,7 @@ export function SettingsShell({ onClose }: Props) {
                 {draft.ai_backend === "ollama" && (
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className={labelCls}>Ollama URL</label>
+                      <label className={labelCls}>{t("ollamaUrlLabel")}</label>
                       <Input
                         value={draft.ollama_url}
                         onChange={(e) => set("ollama_url", e.target.value)}
@@ -257,7 +307,7 @@ export function SettingsShell({ onClose }: Props) {
                       />
                     </div>
                     <div>
-                      <label className={labelCls}>Model</label>
+                      <label className={labelCls}>{t("modelLabel")}</label>
                       <Input
                         value={draft.ollama_model}
                         onChange={(e) => set("ollama_model", e.target.value)}
@@ -270,10 +320,10 @@ export function SettingsShell({ onClose }: Props) {
 
               {/* MCP */}
               <section>
-                <h3 className="text-xs font-semibold text-fg uppercase tracking-wide mb-3">MCP Server</h3>
+                <h3 className="text-xs font-semibold text-fg uppercase tracking-wide mb-3">{t("mcpServerSection")}</h3>
                 <div className="flex items-center gap-4">
                   <div>
-                    <label className={labelCls}>Port</label>
+                    <label className={labelCls}>{t("portLabel")}</label>
                     <Input
                       type="number"
                       value={draft.mcp_port}
@@ -288,7 +338,7 @@ export function SettingsShell({ onClose }: Props) {
                       onChange={(e) => set("mcp_read_only", e.target.checked)}
                       className="accent-accent"
                     />
-                    <span className="text-xs text-fg">Read-only mode</span>
+                    <span className="text-xs text-fg">{t("readOnlyModeLabel")}</span>
                   </label>
                 </div>
               </section>
@@ -297,28 +347,28 @@ export function SettingsShell({ onClose }: Props) {
             <div className="h-full flex flex-col overflow-hidden">
               {loadingAudit ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-8">
-                  <Loader2 className="animate-spin text-accent" size={24} />
-                  <span className="text-xs text-muted mt-2">Loading audit logs...</span>
+                  <Loader2 className="animate-spin text-accent" size={28} />
+                  <span className="text-xs text-muted mt-2">{t("loadingAuditLogs")}</span>
                 </div>
               ) : auditLog.length === 0 ? (
                 <div className="flex-1 flex items-center justify-center p-8 text-xs text-muted italic">
-                  No operations recorded yet.
+                  {t("noOperationsRecorded")}
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col h-full overflow-hidden">
                   <div className="flex justify-between items-center mb-3 shrink-0">
-                    <span className="text-xs text-muted font-medium">Recent operations (newest first)</span>
+                    <span className="text-xs text-muted font-medium">{t("recentOperations")}</span>
                     <Button variant="subtle" size="sm" onClick={handleExportAudit}>
-                      Export CSV
+                      {t("exportCsvButton")}
                     </Button>
                   </div>
                   <div className="flex-1 overflow-y-auto border border-border rounded-[var(--radius-md)] bg-elevated">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
                         <tr className="border-b border-border bg-surface text-muted sticky top-0">
-                          <th className="p-2 font-medium w-[140px]">Time</th>
-                          <th className="p-2 font-medium w-[90px]">Conn ID</th>
-                          <th className="p-2 font-medium">Executed SQL / Operation</th>
+                          <th className="p-2 font-medium w-[140px]">{t("timeCol")}</th>
+                          <th className="p-2 font-medium w-[90px]">{t("connIdCol")}</th>
+                          <th className="p-2 font-medium">{t("sqlCol")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -340,11 +390,11 @@ export function SettingsShell({ onClose }: Props) {
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border shrink-0">
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" size="sm" onClick={onClose}>{t("cancelButton")}</Button>
           {activeTab === "general" && (
             <Button variant="primary" size="sm" onClick={save} disabled={saving}>
-              {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-              {saved ? "Saved!" : "Save"}
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+              {saved ? t("savedButton") : t("saveButton")}
             </Button>
           )}
         </div>

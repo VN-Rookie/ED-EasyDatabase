@@ -1,8 +1,10 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Pencil } from "lucide-react";
 import { describeTable, listForeignKeys, ensureMongoDb } from "./objectApi";
 import type { ColumnInfo, ForeignKeyInfo, DbType } from "../../shared/types";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { RefactorModal } from "../explorer/RefactorModal";
+import { useTranslation } from "../../hooks/useTranslation";
 
 interface OpenObject {
   id: string;
@@ -14,31 +16,32 @@ interface OpenObject {
 }
 
 export function StructureShell({ object }: { object: OpenObject }) {
+  const { t } = useTranslation();
   const [cols, setCols] = useState<ColumnInfo[] | null>(null);
   const [foreignKeys, setForeignKeys] = useState<ForeignKeyInfo[] | null>(null);
   const [error, setError] = useState("");
+  const [refactorColumn, setRefactorColumn] = useState<string | null>(null);
+
+  const loadData = useCallback(async () => {
+    setError("");
+    try {
+      await ensureMongoDb(object);
+      const columns = await describeTable(object.connId, object.table);
+      const fks = object.engine === "mongodb"
+        ? []
+        : await listForeignKeys(object.connId, object.table);
+      setCols(columns);
+      setForeignKeys(fks);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [object]);
 
   useEffect(() => {
     setCols(null);
     setForeignKeys(null);
-    setError("");
-
-    const load = async () => {
-      try {
-        await ensureMongoDb(object);
-        const columns = await describeTable(object.connId, object.table);
-        // MongoDB has no foreign keys; the backend rejects the call.
-        const fks = object.engine === "mongodb"
-          ? []
-          : await listForeignKeys(object.connId, object.table);
-        setCols(columns);
-        setForeignKeys(fks);
-      } catch (e) {
-        setError(String(e));
-      }
-    };
-    load();
-  }, [object.connId, object.table, object.engine, object.database]);
+    loadData();
+  }, [loadData]);
 
   // Build a map from column name to FK info
   const fkColumnInfo = useMemo(() => {
@@ -70,22 +73,22 @@ export function StructureShell({ object }: { object: OpenObject }) {
   }, [object.connId, object.engine, openObject]);
 
   if (error) return <div className="p-4 text-xs text-danger break-words">{error}</div>;
-  if (!cols || foreignKeys === null) return <div className="p-4 text-xs text-muted flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Loading…</div>;
-  if (cols.length === 0) return <div className="p-4 text-xs text-faint italic">No columns</div>;
+  if (!cols || foreignKeys === null) return <div className="p-4 text-xs text-muted flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> {t("loadingStatus")}</div>;
+  if (cols.length === 0) return <div className="p-4 text-xs text-faint italic">{t("noColumnsText")}</div>;
 
   return (
     <div className="flex-1 overflow-auto p-4">
       <table className="w-full text-left border-collapse">
         <thead>
           <tr className="border-b border-border">
-            {["#", "Field", "Type", "Nullable", ""].map((h, i) => (
+            {["#", t("colHeaderField"), t("colHeaderType"), t("colHeaderNullable"), ""].map((h, i) => (
               <th key={i} className="px-3 py-2.5 text-[10px] font-semibold text-muted uppercase tracking-wider whitespace-nowrap">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {cols.map((col, i) => (
-            <tr key={col.name} className={`border-b border-elevated transition-colors hover:bg-hover ${i % 2 === 0 ? "" : "bg-surface/30"}`}>
+            <tr key={col.name} className={`border-b border-elevated transition-colors hover:bg-hover group ${i % 2 === 0 ? "" : "bg-surface/30"}`}>
               <td className="px-3 py-2 text-xs text-faint font-mono">{i + 1}</td>
               <td className="px-3 py-2 max-w-[200px] text-xs font-medium text-fg">
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -100,6 +103,15 @@ export function StructureShell({ object }: { object: OpenObject }) {
                     </button>
                   )}
                   <span className="truncate flex-1" title={col.name}>{col.name}</span>
+                  {object.engine !== "redis" && (
+                    <button
+                      onClick={() => setRefactorColumn(col.name)}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted hover:text-accent hover:bg-hover transition-all cursor-pointer shrink-0"
+                      title="Refactor Rename Column"
+                    >
+                      <Pencil size={11} />
+                    </button>
+                  )}
                 </div>
               </td>
               <td className="px-3 py-2 max-w-[220px]">
@@ -107,7 +119,7 @@ export function StructureShell({ object }: { object: OpenObject }) {
               </td>
               <td className="px-3 py-2 text-xs">
                 {col.nullable
-                  ? <span className="text-muted">nullable</span>
+                  ? <span className="text-muted">{t("valNullable")}</span>
                   : <span className="text-ok text-[10px] font-medium bg-ok/10 border border-ok/20 rounded px-1.5 py-0.5">NOT NULL</span>
                 }
               </td>
@@ -118,6 +130,18 @@ export function StructureShell({ object }: { object: OpenObject }) {
           ))}
         </tbody>
       </table>
+      {refactorColumn && (
+        <RefactorModal
+          connId={object.connId}
+          table={object.table}
+          column={refactorColumn}
+          oldName={refactorColumn}
+          onClose={() => setRefactorColumn(null)}
+          onSuccess={() => {
+            loadData();
+          }}
+        />
+      )}
     </div>
   );
 }

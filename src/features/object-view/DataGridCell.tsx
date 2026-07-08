@@ -51,7 +51,13 @@ export function DataGridCell({
   // Reset edit value when starting to edit
   useEffect(() => {
     if (isEditing) {
-      setEditValue(currentValue === null || currentValue === undefined ? "" : String(currentValue));
+      setEditValue(
+        currentValue === null || currentValue === undefined
+          ? ""
+          : typeof currentValue === "object"
+          ? JSON.stringify(currentValue)
+          : String(currentValue)
+      );
       setError(null);
     }
   }, [isEditing, currentValue]);
@@ -71,7 +77,24 @@ export function DataGridCell({
       return;
     }
 
-    const newValue = editValue === "" ? null : editValue;
+    let newValue: unknown = editValue === "" ? null : editValue;
+    if (typeof newValue === "string" && newValue.trim() !== "") {
+      const trimmed = newValue.trim();
+      if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+        try {
+          newValue = JSON.parse(trimmed);
+        } catch {
+          // Keep as string if parsing fails
+        }
+      } else if (trimmed === "true") {
+        newValue = true;
+      } else if (trimmed === "false") {
+        newValue = false;
+      } else if (!isNaN(Number(trimmed)) && trimmed !== "") {
+        newValue = Number(trimmed);
+      }
+    }
+
     if (rowIndex >= rowsOffset) {
       updateStagedRow(rowIndex - rowsOffset, column, newValue);
     } else {
@@ -86,7 +109,13 @@ export function DataGridCell({
   }, [editValue, rowIndex, column, value, onSave, stopEditing, updateDirtyValue, validateValue, rowsOffset, updateStagedRow]);
 
   const handleCancel = useCallback(() => {
-    setEditValue(currentValue === null || currentValue === undefined ? "" : String(currentValue));
+    setEditValue(
+      currentValue === null || currentValue === undefined
+        ? ""
+        : typeof currentValue === "object"
+        ? JSON.stringify(currentValue)
+        : String(currentValue)
+    );
     setError(null);
     stopEditing();
   }, [currentValue, stopEditing]);
@@ -178,9 +207,6 @@ export function DataGridCell({
       return <span className="text-faint/50 italic select-none font-sans">∅</span>;
     }
 
-    const str = typeof currentValue === "object" ? JSON.stringify(currentValue) : String(currentValue);
-    const isLongContent = str.length > MAX_CELL_LEN;
-
     const fkLink = isForeignKey && onFkClick && (
       <button
         onClick={(e) => {
@@ -193,6 +219,40 @@ export function DataGridCell({
         <Link2 size={11} />
       </button>
     );
+
+    if (typeof currentValue === "object" && currentValue !== null) {
+      const isArr = Array.isArray(currentValue);
+      const count = isArr ? (currentValue as unknown[]).length : Object.keys(currentValue as object).length;
+      const label = isArr ? `Array(${count})` : `Object(${count})`;
+      return (
+        <span className="flex items-center justify-between gap-1 min-w-0 w-full px-1">
+          <span className={`inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-0.5 rounded border select-none ${
+            isArr 
+              ? "bg-indigo-500/10 border-indigo-500/25 text-indigo-400"
+              : "bg-sky-500/10 border-sky-500/25 text-sky-400"
+          }`}>
+            <span className={`w-1 h-1 rounded-full shrink-0 ${isArr ? "bg-indigo-400" : "bg-sky-400"}`} />
+            {label}
+          </span>
+          <span className="flex items-center gap-0.5 shrink-0">
+            {fkLink}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowExpandModal(true);
+              }}
+              className="p-1 text-muted hover:text-fg hover:bg-hover rounded transition-colors"
+              title="Expand to view full content"
+            >
+              <Maximize2 size={12} />
+            </button>
+          </span>
+        </span>
+      );
+    }
+
+    const str = String(currentValue);
+    const isLongContent = str.length > MAX_CELL_LEN;
 
     if (!isLongContent) {
       return (

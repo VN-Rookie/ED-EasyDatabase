@@ -6,6 +6,7 @@ import { useToast } from "../../components/Toast";
 import { switchMongoDb } from "./schemaApi";
 import { invoke } from "@tauri-apps/api/core";
 import { useBackupStore } from "../../stores/backupStore";
+import { useTranslation } from "../../hooks/useTranslation";
 
 interface Props {
   connId: string;
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export function BackupModal({ connId, dbName, engine, onClose, onSuccess }: Props) {
+  const { t } = useTranslation();
   const ext = engine === "mongodb" ? "json" : "sql";
   const defaultFileName = dbName ? `${dbName}_backup.${ext}` : `backup.${ext}`;
   const [filePath, setFilePath] = useState("");
@@ -37,13 +39,13 @@ export function BackupModal({ connId, dbName, engine, onClose, onSuccess }: Prop
         setFilePath(selected);
       }
     } catch (e) {
-      setError(`Failed to open save dialog: ${e}`);
+      setError(`${t("failedSaveDialog")}: ${e}`);
     }
   };
 
   const handleStartBackup = async () => {
     if (!filePath.trim()) {
-      setError("Please select or enter a save file path");
+      setError(t("errorSelectSavePath"));
       return;
     }
     setError("");
@@ -67,52 +69,52 @@ export function BackupModal({ connId, dbName, engine, onClose, onSuccess }: Prop
         startTime: Date.now(),
       });
 
-      toast(`Backup started in the background`, "success");
+      toast(t("backupStartedSuccess"), "success");
       onSuccess();
       onClose();
     } catch (e) {
       setError(String(e));
-      toast(`Backup failed to start: ${e}`, "error");
+      toast(`${t("backupStartFailed")}: ${e}`, "error");
     }
   };
 
-  const labelCls = "block text-[10px] font-bold tracking-wider text-muted uppercase";
+  const labelCls = "block text-xs font-bold tracking-wider text-muted uppercase";
   const inputCls = "w-full px-3 py-2 text-xs bg-surface border border-border rounded-[var(--radius-sm)] text-fg placeholder:text-faint outline-none focus:border-accent transition-colors";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px] animate-fade-in">
-      <div className="w-[480px] bg-surface border border-border rounded-[var(--radius-lg)] shadow-2xl flex flex-col anim-slide-up overflow-hidden">
+      <div className="w-[480px] h-[380px] max-h-[90vh] bg-surface border border-border rounded-[var(--radius-lg)] shadow-2xl flex flex-col anim-slide-up resize overflow-hidden min-w-[360px] min-h-[250px]">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <span className="text-sm font-semibold text-fg">
-            Backup {dbName ? `Database: ${dbName}` : "Connection"}
+            {dbName ? `${t("backupTitleDb")}: ${dbName}` : t("backupTitleConn")}
           </span>
           <button
             onClick={onClose}
             className="p-1 rounded-sm text-muted hover:text-fg hover:bg-hover transition-colors"
           >
-            <X size={14} />
+            <X size={18} />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-4 space-y-4 overflow-y-auto">
+        <div className="p-4 space-y-4 flex-1 overflow-y-auto">
           {error && (
             <div className="flex gap-2 p-2.5 bg-danger/10 border border-danger/20 rounded-[var(--radius-md)] text-xs text-danger">
-              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
               <span className="break-words">{error}</span>
             </div>
           )}
 
           <div className="space-y-1.5">
-            <label className={labelCls}>Database Type</label>
+            <label className={labelCls}>{t("dbTypeLabel")}</label>
             <div className="text-xs text-muted font-semibold bg-elevated border border-border px-3 py-2 rounded-[var(--radius-sm)] capitalize">
               {engine}
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className={labelCls}>Save Path Destination</label>
+            <label className={labelCls}>{t("savePathDestinationLabel")}</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -127,12 +129,12 @@ export function BackupModal({ connId, dbName, engine, onClose, onSuccess }: Prop
                 onClick={handleBrowse}
                 className="shrink-0 border border-border h-9"
               >
-                <FolderOpen size={14} className="mr-1.5 text-muted" />
-                Browse
+                <FolderOpen size={16} className="mr-1.5 text-muted" />
+                {t("browseBtn")}
               </Button>
             </div>
-            <p className="text-[10px] text-muted">
-              Choose where to save the logical backup file (extension: <code className="font-mono text-accent">.{ext}</code>).
+            <p className="text-xs text-muted">
+              {t("chooseSavePathDesc")} (extension: <code className="font-mono text-accent">.{ext}</code>).
             </p>
           </div>
         </div>
@@ -140,7 +142,7 @@ export function BackupModal({ connId, dbName, engine, onClose, onSuccess }: Prop
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border shrink-0">
           <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancel
+            {t("cancelButton")}
           </Button>
           <Button
             variant="primary"
@@ -148,8 +150,8 @@ export function BackupModal({ connId, dbName, engine, onClose, onSuccess }: Prop
             onClick={handleStartBackup}
             disabled={!filePath.trim()}
           >
-            <Download size={12} className="mr-1" />
-            Start Backup
+            <Download size={15} className="mr-1" />
+            {t("startBackupBtn")}
           </Button>
         </div>
       </div>

@@ -35,15 +35,15 @@ export function SavedQueriesPanel({ currentSql, onLoad, onRun, onClose }: Props)
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#30363d] shrink-0">
         <div className="flex items-center gap-1.5">
-          <Bookmark size={11} className="text-[#7d8590]" />
+          <Bookmark size={14} className="text-[#7d8590]" />
           <span className="text-xs font-medium text-[#e6edf3]">Saved</span>
           {queries.length > 0 && (
-            <span className="text-[9px] text-[#7d8590] bg-[#21262d] rounded-full px-1.5 py-0.5">{queries.length}</span>
+            <span className="text-xs text-[#7d8590] bg-[#21262d] rounded-full px-1.5 py-0.5">{queries.length}</span>
           )}
         </div>
         <button onClick={onClose}
           className="text-[#7d8590] hover:text-[#e6edf3] p-0.5 rounded hover:bg-[#292e36] transition-colors">
-          <X size={12} />
+          <X size={15} />
         </button>
       </div>
 
@@ -64,11 +64,11 @@ export function SavedQueriesPanel({ currentSql, onLoad, onRun, onClose }: Props)
             />
             <div className="flex gap-1.5">
               <button onClick={handleSave} disabled={saving || !savingName.trim()}
-                className="flex-1 flex items-center justify-center gap-1 text-[10px] bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-md py-1 transition-colors font-medium">
-                <Check size={9} /> Save
+                className="flex-1 flex items-center justify-center gap-1 text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-md py-1 transition-colors font-medium">
+                <Check size={13} /> Save
               </button>
               <button onClick={() => { setShowSaveForm(false); setSavingName(""); }}
-                className="text-[10px] text-[#7d8590] hover:text-[#e6edf3] px-2 py-1 rounded-md hover:bg-[#292e36] transition-colors">
+                className="text-xs text-[#7d8590] hover:text-[#e6edf3] px-2 py-1 rounded-md hover:bg-[#292e36] transition-colors">
                 ✕
               </button>
             </div>
@@ -77,9 +77,9 @@ export function SavedQueriesPanel({ currentSql, onLoad, onRun, onClose }: Props)
           <button
             onClick={() => setShowSaveForm(true)}
             disabled={!currentSql.trim()}
-            className="w-full flex items-center justify-center gap-1.5 text-[10px] text-[#7d8590] hover:text-[#e6edf3] border border-dashed border-[#30363d]/60 hover:border-[#484f58] rounded-md py-1.5 transition-colors disabled:opacity-30"
+            className="w-full flex items-center justify-center gap-1.5 text-xs text-[#7d8590] hover:text-[#e6edf3] border border-dashed border-[#30363d]/60 hover:border-[#484f58] rounded-md py-1.5 transition-colors disabled:opacity-30"
           >
-            <Plus size={10} /> Save current query
+            <Plus size={13} /> Save current query
           </button>
         )}
       </div>
@@ -89,7 +89,7 @@ export function SavedQueriesPanel({ currentSql, onLoad, onRun, onClose }: Props)
         {queries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4 py-6">
             <Bookmark size={18} className="text-[#484f58]" />
-            <p className="text-[10px] text-[#7d8590] leading-relaxed">No saved queries yet</p>
+            <p className="text-xs text-[#7d8590] leading-relaxed">No saved queries yet</p>
           </div>
         ) : (
           <ul className="divide-y divide-[#30363d]/30">
@@ -100,22 +100,22 @@ export function SavedQueriesPanel({ currentSql, onLoad, onRun, onClose }: Props)
                 }`}>
                 <div className="flex items-center justify-between gap-1">
                   <button onClick={() => onLoad(q.sql)}
-                    className="text-[11px] text-[#e6edf3] font-medium text-left hover:text-blue-300 transition-colors flex-1 truncate"
+                    className="text-xs text-[#e6edf3] font-medium text-left hover:text-blue-300 transition-colors flex-1 truncate"
                     title={q.sql}>
                     {q.name}
                   </button>
                   <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => onRun(q.sql)} title="Run query"
                       className="p-0.5 rounded hover:bg-[#292e36] text-[#7d8590] hover:text-green-400 transition-colors">
-                      <Play size={9} />
+                      <Play size={13} />
                     </button>
                     <button onClick={() => remove(q.id)} title="Delete"
                       className="p-0.5 rounded hover:bg-[#292e36] text-[#7d8590] hover:text-red-400 transition-colors">
-                      <Trash2 size={9} />
+                      <Trash2 size={13} />
                     </button>
                   </div>
                 </div>
-                <p className="text-[9px] text-[#7d8590] font-mono mt-0.5 truncate" title={q.sql}>
+                <p className="text-xs text-[#7d8590] font-mono mt-0.5 truncate" title={q.sql}>
                   {q.sql.slice(0, 50)}{q.sql.length > 50 ? "…" : ""}
                 </p>
               </li>

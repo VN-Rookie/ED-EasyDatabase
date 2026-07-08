@@ -25,6 +25,7 @@ export interface Settings {
   editor_font_size: number;
   system_font_family: string;
   editor_font_family: string;
+  language: "en" | "vi";
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -42,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   editor_font_size: 14,
   system_font_family: "",
   editor_font_family: "",
+  language: "en",
 };
 
 /** Well-known OpenAI-compatible provider presets */
