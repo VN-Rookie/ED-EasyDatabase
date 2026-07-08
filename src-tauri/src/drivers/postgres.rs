@@ -4,7 +4,7 @@ use sqlx::{Column, Row};
 
 use crate::drivers::{is_select, Driver};
 use crate::error::AppError;
-use crate::model::{ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo, BatchEditInput};
+use crate::model::{ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo, BatchEditInput, TableSchemaInfo, RefactorPreview, DependencyInfo};
 
 pub struct PostgresDriver {
     pub pool: sqlx::PgPool,
@@ -85,6 +85,155 @@ impl Driver for PostgresDriver {
         Ok(rows.into_iter().map(|(name, data_type, nullable, is_pk)| ColumnInfo {
             name, data_type, nullable: nullable == "YES", is_pk,
         }).collect())
+    }
+
+    async fn describe_schema(&self) -> Result<Vec<TableSchemaInfo>, AppError> {
+        let schema = self.schema.read().unwrap().clone();
+        let rows = sqlx::query_as::<_, (String, String, String, String, bool)>(
+            "SELECT 
+                c.table_name, 
+                c.column_name, 
+                c.data_type, 
+                c.is_nullable,
+                (pk.column_name IS NOT NULL) AS is_pk
+             FROM information_schema.columns c
+             LEFT JOIN (
+                 SELECT kcu.table_name, kcu.column_name
+                 FROM information_schema.table_constraints tc
+                 JOIN information_schema.key_column_usage kcu
+                     ON tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema  = kcu.table_schema
+                     AND tc.table_name    = kcu.table_name
+                 WHERE tc.constraint_type = 'PRIMARY KEY'
+                     AND tc.table_schema = $1
+             ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name
+             WHERE c.table_schema = $1
+             ORDER BY c.table_name, c.ordinal_position"
+        )
+        .bind(&schema)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut map: std::collections::BTreeMap<String, Vec<ColumnInfo>> = std::collections::BTreeMap::new();
+        for (table_name, col_name, data_type, nullable, is_pk) in rows {
+            map.entry(table_name).or_default().push(ColumnInfo {
+                name: col_name,
+                data_type,
+                nullable: nullable == "YES",
+                is_pk,
+            });
+        }
+
+        Ok(map.into_iter().map(|(table_name, columns)| TableSchemaInfo {
+            table_name,
+            columns,
+        }).collect())
+    }
+
+    async fn get_refactor_preview(
+        &self,
+        table: &str,
+        column: Option<&str>,
+        new_name: &str,
+    ) -> Result<RefactorPreview, AppError> {
+        let schema = self.schema.read().unwrap().clone();
+        let old_target = column.unwrap_or(table);
+        
+        // 1. Quét View dependencies từ catalogs
+        let view_rows = sqlx::query_as::<_, (String, String)>(
+            "SELECT DISTINCT 
+                dependent_view.relname AS view_name,
+                pg_get_viewdef(dependent_view.oid, true) AS view_definition
+             FROM pg_depend dep
+             JOIN pg_rewrite re ON dep.objid = re.oid
+             JOIN pg_class dependent_view ON re.ev_class = dependent_view.oid
+             JOIN pg_class source_table ON dep.refobjid = source_table.oid
+             JOIN pg_namespace n ON source_table.relnamespace = n.oid
+             WHERE source_table.relname = $1 AND n.nspname = $2"
+        )
+        .bind(table)
+        .bind(&schema)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // 2. Quét Procedures/Functions dependencies
+        let search_pattern = format!("%{}%", old_target);
+        let proc_rows = sqlx::query_as::<_, (String, String)>(
+            "SELECT p.proname AS procedure_name,
+                    pg_get_functiondef(p.oid) AS procedure_definition
+             FROM pg_proc p
+             JOIN pg_namespace n ON p.pronamespace = n.oid
+             WHERE n.nspname = $1 AND pg_get_functiondef(p.oid) ILIKE $2"
+        )
+        .bind(&schema)
+        .bind(&search_pattern)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut dependencies = Vec::new();
+        let mut ddl_statements = Vec::new();
+        
+        let old_word_boundary = format!(r"\b{}\b", regex::escape(old_target));
+        let re = regex::Regex::new(&old_word_boundary).map_err(|e| AppError::new(e.to_string()))?;
+
+        // Xử lý views phụ thuộc
+        for (view_name, old_def) in view_rows {
+            let clean_def = old_def.trim_end_matches(';').trim().to_string();
+            let new_def = re.replace_all(&clean_def, new_name).to_string();
+            
+            dependencies.push(DependencyInfo {
+                object_name: view_name.clone(),
+                object_type: "View".to_string(),
+                old_definition: clean_def.clone(),
+                new_definition: new_def.clone(),
+            });
+
+            // Sinh DDL cho view: DROP CASCADE rồi CREATE lại
+            ddl_statements.push(format!("DROP VIEW IF EXISTS \"{}\".\"{}\" CASCADE;", schema, view_name));
+            ddl_statements.push(format!("CREATE OR REPLACE VIEW \"{}\".\"{}\" AS\n{};", schema, view_name, new_def));
+        }
+
+        // Xử lý procedures phụ thuộc
+        for (proc_name, old_def) in proc_rows {
+            let clean_def = old_def.trim().to_string();
+            let new_def = re.replace_all(&clean_def, new_name).to_string();
+
+            dependencies.push(DependencyInfo {
+                object_name: proc_name.clone(),
+                object_type: "Procedure/Function".to_string(),
+                old_definition: clean_def.clone(),
+                new_definition: new_def.clone(),
+            });
+
+            ddl_statements.push(format!("{};", new_def));
+        }
+
+        // Tạo câu lệnh đổi tên đối tượng gốc
+        let rename_stmt = if let Some(col) = column {
+            format!("ALTER TABLE \"{}\".\"{}\" RENAME COLUMN \"{}\" TO \"{}\";", schema, table, col, new_name)
+        } else {
+            format!("ALTER TABLE \"{}\".\"{}\" RENAME TO \"{}\";", schema, table, new_name)
+        };
+
+        // Gộp tất cả các lệnh vào 1 transaction
+        let mut generated_ddl = String::new();
+        generated_ddl.push_str("BEGIN;\n");
+        // Chèn các lệnh drop view đầu tiên để giải phóng dependency
+        for stmt in ddl_statements.iter().filter(|s| s.starts_with("DROP")) {
+            generated_ddl.push_str(&format!("  {}\n", stmt));
+        }
+        // Thực hiện rename đối tượng chính
+        generated_ddl.push_str(&format!("  {}\n", rename_stmt));
+        // Tạo lại các view và procedure
+        for stmt in ddl_statements.iter().filter(|s| !s.starts_with("DROP")) {
+            generated_ddl.push_str(&format!("  {}\n", stmt));
+        }
+        generated_ddl.push_str("COMMIT;");
+
+        Ok(RefactorPreview {
+            dependencies,
+            generated_ddl,
+        })
     }
 
     async fn list_indexes(&self, table: &str) -> Result<Vec<IndexInfo>, AppError> {

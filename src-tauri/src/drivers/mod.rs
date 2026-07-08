@@ -8,7 +8,7 @@ use async_trait::async_trait;
 
 use crate::db;
 use crate::error::AppError;
-use crate::model::{ColumnInfo, ConnectionConfig, DeleteDocumentInput, DeleteRowInput, ForeignKeyInfo, IndexInfo, InsertDocumentInput, InsertRowInput, QueryResult, ReplaceDocumentInput, SchemaInfo, TableInfo, UpdateDocumentInput, UpdateRowInput, BatchEditInput};
+use crate::model::{ColumnInfo, ConnectionConfig, DeleteDocumentInput, DeleteRowInput, ForeignKeyInfo, IndexInfo, InsertDocumentInput, InsertRowInput, QueryResult, ReplaceDocumentInput, SchemaInfo, TableInfo, UpdateDocumentInput, UpdateRowInput, BatchEditInput, TableSchemaInfo, RefactorPreview};
 
 #[async_trait]
 pub trait Driver: Send + Sync {
@@ -17,6 +17,13 @@ pub trait Driver: Send + Sync {
     async fn list_schemas(&self) -> Result<Vec<SchemaInfo>, AppError>;
     async fn list_tables(&self) -> Result<Vec<TableInfo>, AppError>;
     async fn describe_table(&self, table: &str) -> Result<Vec<ColumnInfo>, AppError>;
+    async fn describe_schema(&self) -> Result<Vec<TableSchemaInfo>, AppError>;
+    async fn get_refactor_preview(
+        &self,
+        table: &str,
+        column: Option<&str>,
+        new_name: &str,
+    ) -> Result<RefactorPreview, AppError>;
     async fn list_indexes(&self, table: &str) -> Result<Vec<IndexInfo>, AppError>;
     async fn list_foreign_keys(&self, _table: &str) -> Result<Vec<ForeignKeyInfo>, AppError> {
         // Default: not supported (MongoDB)
@@ -97,13 +104,32 @@ pub(crate) fn is_select(sql: &str) -> bool {
         || upper.starts_with("SHOW")
 }
 
+fn percent_encode(s: &str) -> String {
+    let mut encoded = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(b as char);
+            }
+            _ => {
+                encoded.push_str(&format!("%{:02X}", b));
+            }
+        }
+    }
+    encoded
+}
+
 /// The ONLY place that matches on engine type.
 pub async fn connect(config: &ConnectionConfig) -> Result<Arc<dyn Driver>, AppError> {
     match config.db_type.as_str() {
         "postgres" => {
             let url = format!(
                 "postgres://{}:{}@{}:{}/{}",
-                config.username, config.password, config.host, config.port, config.database
+                percent_encode(&config.username),
+                percent_encode(&config.password),
+                config.host,
+                config.port,
+                config.database
             );
             Ok(Arc::new(postgres::PostgresDriver {
                 pool: db::connect_postgres(&url).await?,
@@ -113,7 +139,11 @@ pub async fn connect(config: &ConnectionConfig) -> Result<Arc<dyn Driver>, AppEr
         "mysql" => {
             let url = format!(
                 "mysql://{}:{}@{}:{}/{}",
-                config.username, config.password, config.host, config.port, config.database
+                percent_encode(&config.username),
+                percent_encode(&config.password),
+                config.host,
+                config.port,
+                config.database
             );
             Ok(Arc::new(mysql::MysqlDriver { pool: db::connect_mysql(&url).await? }))
         }
@@ -132,8 +162,30 @@ pub async fn connect(config: &ConnectionConfig) -> Result<Arc<dyn Driver>, AppEr
             Ok(Arc::new(mongo::MongoDriver::new(client, initial)))
         }
         "redis" => {
-            let conn_url = if config.connection_string.is_empty() {
-                format!("redis://{}:{}/", config.host, config.port)
+            let conn_url = if config.connection_string.is_empty()
+                || (!config.connection_string.starts_with("redis://")
+                    && !config.connection_string.starts_with("rediss://"))
+            {
+                if !config.password.is_empty() {
+                    if !config.username.is_empty() {
+                        format!(
+                            "redis://{}:{}@{}:{}/",
+                            percent_encode(&config.username),
+                            percent_encode(&config.password),
+                            config.host,
+                            config.port
+                        )
+                    } else {
+                        format!(
+                            "redis://:{}@{}:{}/",
+                            percent_encode(&config.password),
+                            config.host,
+                            config.port
+                        )
+                    }
+                } else {
+                    format!("redis://{}:{}/", config.host, config.port)
+                }
             } else {
                 config.connection_string.clone()
             };

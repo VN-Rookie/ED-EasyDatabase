@@ -10,24 +10,30 @@ use crate::{
     state::{AppState, ConnectionHandle},
 };
 
-fn save_password(id: &str, password: &str) {
-    if let Ok(entry) = keyring::Entry::new("easydatabase", id) {
-        let _ = entry.set_password(password);
-    }
-}
-
 fn get_password(id: &str) -> Option<String> {
-    if let Ok(entry) = keyring::Entry::new("easydatabase", id) {
-        entry.get_password().ok()
-    } else {
-        None
-    }
+    let entry = keyring::Entry::new("easydatabase", id).ok()?;
+    entry.get_password().ok()
 }
 
 fn delete_password(id: &str) {
     if let Ok(entry) = keyring::Entry::new("easydatabase", id) {
         let _ = entry.delete_credential();
     }
+}
+
+fn hex_encode(s: &str) -> String {
+    s.as_bytes().iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn hex_decode(s: &str) -> Option<String> {
+    if s.len() % 2 != 0 { return None; }
+    let mut bytes = Vec::new();
+    for i in (0..s.len()).step_by(2) {
+        let hex = &s[i..i+2];
+        let byte = u8::from_str_radix(hex, 16).ok()?;
+        bytes.push(byte);
+    }
+    String::from_utf8(bytes).ok()
 }
 
 fn config_path() -> Result<PathBuf, AppError> {
@@ -55,11 +61,10 @@ pub async fn save_connection(mut config: ConnectionConfig) -> Result<ConnectionC
         vec![]
     };
 
-    // Extract password and store it in keyring if it's not empty and not the placeholder
+    // Hex-encode password for local file storage (obfuscation)
     let raw_pwd = config.password.clone();
-    if !raw_pwd.is_empty() && raw_pwd != "KEYCHAIN_STORED" {
-        save_password(&config.id, &raw_pwd);
-        config.password = "KEYCHAIN_STORED".to_string();
+    if !raw_pwd.is_empty() && !raw_pwd.starts_with("HEX:") && raw_pwd != "KEYCHAIN_STORED" {
+        config.password = format!("HEX:{}", hex_encode(&raw_pwd));
     }
 
     // Upsert by id
@@ -73,7 +78,7 @@ pub async fn save_connection(mut config: ConnectionConfig) -> Result<ConnectionC
     fs::write(&path, json).map_err(|e| AppError::new(e.to_string()))?;
 
     // Restore the password in the returned struct so the frontend has it
-    if config.password == "KEYCHAIN_STORED" {
+    if config.password.starts_with("HEX:") {
         config.password = raw_pwd;
     }
     Ok(config)
@@ -88,9 +93,13 @@ pub async fn load_saved_connections() -> Result<Vec<ConnectionConfig>, AppError>
     let raw = fs::read_to_string(&path).map_err(|e| AppError::new(e.to_string()))?;
     let mut configs: Vec<ConnectionConfig> = serde_json::from_str(&raw).map_err(|e| AppError::new(e.to_string()))?;
 
-    // Populate passwords from keyring
+    // Populate passwords from hex/keyring
     for config in &mut configs {
-        if config.password == "KEYCHAIN_STORED" {
+        if config.password.starts_with("HEX:") {
+            if let Some(decoded) = hex_decode(&config.password[4..]) {
+                config.password = decoded;
+            }
+        } else if config.password == "KEYCHAIN_STORED" {
             if let Some(pwd) = get_password(&config.id) {
                 config.password = pwd;
             }

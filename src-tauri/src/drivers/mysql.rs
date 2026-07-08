@@ -4,7 +4,7 @@ use sqlx::{Column, Row};
 
 use crate::drivers::{is_select, Driver};
 use crate::error::AppError;
-use crate::model::{ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo, BatchEditInput};
+use crate::model::{ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo, BatchEditInput, TableSchemaInfo, RefactorPreview, DependencyInfo};
 
 pub struct MysqlDriver {
     pub pool: sqlx::MySqlPool,
@@ -63,6 +63,138 @@ impl Driver for MysqlDriver {
             nullable: nullable.eq_ignore_ascii_case("YES"),
             is_pk:    key.eq_ignore_ascii_case("PRI"),
         }).collect())
+    }
+
+    async fn describe_schema(&self) -> Result<Vec<TableSchemaInfo>, AppError> {
+        let rows = sqlx::query_as::<_, (String, String, String, String, String)>(
+            "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY \
+             FROM information_schema.COLUMNS \
+             WHERE TABLE_SCHEMA = DATABASE() \
+             ORDER BY TABLE_NAME, ORDINAL_POSITION",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut map: std::collections::BTreeMap<String, Vec<ColumnInfo>> = std::collections::BTreeMap::new();
+        for (table_name, col_name, data_type, nullable, key) in rows {
+            map.entry(table_name).or_default().push(ColumnInfo {
+                name: col_name,
+                data_type,
+                nullable: nullable.eq_ignore_ascii_case("YES"),
+                is_pk:    key.eq_ignore_ascii_case("PRI"),
+            });
+        }
+
+        Ok(map.into_iter().map(|(table_name, columns)| TableSchemaInfo {
+            table_name,
+            columns,
+        }).collect())
+    }
+
+    async fn get_refactor_preview(
+        &self,
+        table: &str,
+        column: Option<&str>,
+        new_name: &str,
+    ) -> Result<RefactorPreview, AppError> {
+        let old_target = column.unwrap_or(table);
+        let search_pattern = format!("%{}%", old_target);
+
+        // 1. Tìm views phụ thuộc
+        let view_rows = sqlx::query_as::<_, (String, Option<String>)>(
+            "SELECT TABLE_NAME, VIEW_DEFINITION \
+             FROM information_schema.VIEWS \
+             WHERE TABLE_SCHEMA = DATABASE() AND VIEW_DEFINITION LIKE ?",
+        )
+        .bind(&search_pattern)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // 2. Tìm routines (procedures/functions) phụ thuộc
+        let routine_rows = sqlx::query_as::<_, (String, String, Option<String>)>(
+            "SELECT ROUTINE_NAME, ROUTINE_TYPE, ROUTINE_DEFINITION \
+             FROM information_schema.ROUTINES \
+             WHERE ROUTINE_SCHEMA = DATABASE() AND (ROUTINE_DEFINITION LIKE ? OR ROUTINE_NAME LIKE ?)",
+        )
+        .bind(&search_pattern)
+        .bind(&search_pattern)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut dependencies = Vec::new();
+        let mut ddl_statements = Vec::new();
+        
+        let old_word_boundary = format!(r"\b{}\b", regex::escape(old_target));
+        let re = regex::Regex::new(&old_word_boundary).map_err(|e| AppError::new(e.to_string()))?;
+
+        // View dependencies
+        for (view_name, old_def_opt) in view_rows {
+            if let Some(old_def) = old_def_opt {
+                let clean_def = old_def.trim_end_matches(';').trim().to_string();
+                let new_def = re.replace_all(&clean_def, new_name).to_string();
+
+                dependencies.push(DependencyInfo {
+                    object_name: view_name.clone(),
+                    object_type: "View".to_string(),
+                    old_definition: clean_def.clone(),
+                    new_definition: new_def.clone(),
+                });
+
+                ddl_statements.push(format!("DROP VIEW IF EXISTS `{}`;", view_name));
+                ddl_statements.push(format!("CREATE OR REPLACE VIEW `{}` AS\n{};", view_name, new_def));
+            }
+        }
+
+        // Routine dependencies
+        for (routine_name, routine_type, old_def_opt) in routine_rows {
+            if let Some(old_def) = old_def_opt {
+                let clean_def = old_def.trim().to_string();
+                let new_def = re.replace_all(&clean_def, new_name).to_string();
+
+                dependencies.push(DependencyInfo {
+                    object_name: routine_name.clone(),
+                    object_type: routine_type.clone(),
+                    old_definition: clean_def.clone(),
+                    new_definition: new_def.clone(),
+                });
+
+                // Chú ý: Routines trong MySQL cần DROP và CREATE lại, 
+                // nhưng definition từ information_schema thường không chứa mệnh đề CREATE hoàn chỉnh, 
+                // nên ta chỉ log định nghĩa đã sửa đổi để người dùng tham chiếu
+                ddl_statements.push(format!("-- Cần cập nhật {} `{}`:\n-- {}", routine_type, routine_name, new_def));
+            }
+        }
+
+        // Câu lệnh đổi tên đối tượng gốc
+        let rename_stmt = if let Some(col) = column {
+            format!("ALTER TABLE `{}` RENAME COLUMN `{}` TO `{}`;", table, col, new_name)
+        } else {
+            format!("RENAME TABLE `{}` TO `{}`;", table, new_name)
+        };
+
+        // Gộp DDL preview
+        let mut generated_ddl = String::new();
+        generated_ddl.push_str("START TRANSACTION;\n");
+        // Drop view trước
+        for stmt in ddl_statements.iter().filter(|s| s.starts_with("DROP")) {
+            generated_ddl.push_str(&format!("  {}\n", stmt));
+        }
+        // Đổi tên bảng/cột
+        generated_ddl.push_str(&format!("  {}\n", rename_stmt));
+        // Re-create views
+        for stmt in ddl_statements.iter().filter(|s| s.starts_with("CREATE")) {
+            generated_ddl.push_str(&format!("  {}\n", stmt));
+        }
+        // Comments cho routines
+        for stmt in ddl_statements.iter().filter(|s| s.starts_with("--")) {
+            generated_ddl.push_str(&format!("  {}\n", stmt));
+        }
+        generated_ddl.push_str("COMMIT;");
+
+        Ok(RefactorPreview {
+            dependencies,
+            generated_ddl,
+        })
     }
 
     async fn list_indexes(&self, table: &str) -> Result<Vec<IndexInfo>, AppError> {

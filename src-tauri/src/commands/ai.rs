@@ -302,6 +302,40 @@ pub async fn complete_sql(partial_sql: String, schema_context: String) -> Result
         .to_string())
 }
 
+fn sql_fix_prompt(schema_context: &str) -> String {
+    format!(
+        "You are a SQL expert database assistant.\n\
+         The database schema is:\n\n\
+         {schema_context}\n\n\
+         A user ran a SQL query and got an error.\n\
+         Your task is to fix the query so that it executes correctly.\n\n\
+         Rules:\n\
+         - Output ONLY the corrected SQL query, nothing else.\n\
+         - Do NOT wrap it in markdown fences or backticks.\n\
+         - Do NOT add any explanations."
+    )
+}
+
+#[tauri::command]
+pub async fn fix_sql_error(
+    sql: String,
+    error: String,
+    schema_context: String,
+) -> Result<String, AppError> {
+    let settings = load_settings().await?;
+    let system = sql_fix_prompt(&schema_context);
+    let user_prompt = format!(
+        "SQL Query:\n{sql}\n\nError Message:\n{error}\n\nPlease fix the SQL query."
+    );
+    let raw = call_ai(&settings, &system, &user_prompt).await?;
+    Ok(raw
+        .trim_start_matches("```sql")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim()
+        .to_string())
+}
+
 /// Check if Ollama is reachable at the configured URL.
 #[tauri::command]
 pub async fn check_ollama() -> Result<bool, AppError> {

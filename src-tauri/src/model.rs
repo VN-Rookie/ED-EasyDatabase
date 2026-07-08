@@ -18,12 +18,32 @@ pub struct SchemaInfo {
     pub name: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,
     pub nullable: bool,
     pub is_pk: bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct TableSchemaInfo {
+    pub table_name: String,
+    pub columns: Vec<ColumnInfo>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct DependencyInfo {
+    pub object_name: String,
+    pub object_type: String, // "View" | "Procedure" | "Function"
+    pub old_definition: String,
+    pub new_definition: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct RefactorPreview {
+    pub dependencies: Vec<DependencyInfo>,
+    pub generated_ddl: String,
 }
 
 #[derive(Serialize)]

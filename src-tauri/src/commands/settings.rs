@@ -50,6 +50,12 @@ pub struct Settings {
     pub system_font_size: f32,
     #[serde(default = "default_editor_font_size")]
     pub editor_font_size: f32,
+    #[serde(default = "default_system_font_family")]
+    pub system_font_family: String,
+    #[serde(default = "default_editor_font_family")]
+    pub editor_font_family: String,
+    #[serde(default = "default_language")]
+    pub language: String,
 }
 
 fn default_backend() -> String { "openai".into() }
@@ -62,6 +68,9 @@ fn default_mcp_read_only() -> bool { true }
 fn default_ui_scale() -> f32 { 1.3 }
 fn default_system_font_size() -> f32 { 12.0 }
 fn default_editor_font_size() -> f32 { 14.0 }
+fn default_system_font_family() -> String { "".into() }
+fn default_editor_font_family() -> String { "".into() }
+fn default_language() -> String { "en".into() }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -78,6 +87,9 @@ impl Default for Settings {
             ui_scale: default_ui_scale(),
             system_font_size: default_system_font_size(),
             editor_font_size: default_editor_font_size(),
+            system_font_family: default_system_font_family(),
+            editor_font_family: default_editor_font_family(),
+            language: default_language(),
         }
     }
 }
@@ -105,4 +117,25 @@ pub async fn save_settings(settings: Settings) -> Result<Settings, AppError> {
 #[tauri::command]
 pub async fn save_to_file(path: String, content: String) -> Result<(), AppError> {
     fs::write(&path, content).map_err(|e| AppError::new(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_settings_serialization() {
+        let default_settings = Settings::default();
+        assert_eq!(default_settings.language, "en");
+
+        let json = serde_json::to_string(&default_settings).unwrap();
+        let deserialized: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.language, "en");
+
+        let custom_json = r#"{"language": "vi", "mcp_port": 5000}"#;
+        let deserialized_custom: Settings = serde_json::from_str(custom_json).unwrap();
+        assert_eq!(deserialized_custom.language, "vi");
+        assert_eq!(deserialized_custom.mcp_port, 5000);
+        assert_eq!(deserialized_custom.ai_backend, "openai"); // should fallback to default
+    }
 }

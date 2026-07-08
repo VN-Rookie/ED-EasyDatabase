@@ -10,7 +10,7 @@ pub fn tool_definitions() -> Value {
     json!([
         {
             "name": "list_connections",
-            "description": "List all active database connections open in tool-sql.",
+            "description": "List all active database connections open in easydatabase.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {

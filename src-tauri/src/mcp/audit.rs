@@ -20,7 +20,7 @@ pub struct AuditEntry {
 fn audit_path() -> Result<PathBuf, AppError> {
     let dir = dirs::config_dir()
         .ok_or_else(|| AppError::new("Cannot determine config directory"))?
-        .join("tool-sql");
+        .join("easydatabase");
     fs::create_dir_all(&dir).map_err(|e| AppError::new(e.to_string()))?;
     Ok(dir.join("audit.jsonl"))
 }

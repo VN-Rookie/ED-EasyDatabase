@@ -125,7 +125,7 @@ async fn dispatch(req: RpcRequest, state: &AppState) -> Result<Value, (i32, Stri
         "initialize" => Ok(json!({
             "protocolVersion": "2024-11-05",
             "capabilities": { "tools": { "listChanged": false } },
-            "serverInfo": { "name": "tool-sql", "version": "0.1.0" }
+            "serverInfo": { "name": "easydatabase", "version": "0.1.0" }
         })),
 
         "tools/list" => Ok(json!({ "tools": tools::tool_definitions() })),

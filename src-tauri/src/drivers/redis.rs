@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::drivers::Driver;
 use crate::error::AppError;
-use crate::model::{ColumnInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo};
+use crate::model::{ColumnInfo, IndexInfo, QueryResult, SchemaInfo, TableInfo, TableSchemaInfo, RefactorPreview, DependencyInfo};
 
 pub struct RedisDriver {
     pub client: ::redis::Client,
@@ -126,6 +126,28 @@ impl Driver for RedisDriver {
                 is_pk: false,
             },
         ])
+    }
+
+    async fn describe_schema(&self) -> Result<Vec<TableSchemaInfo>, AppError> {
+        Ok(vec![])
+    }
+
+    async fn get_refactor_preview(
+        &self,
+        table: &str,
+        column: Option<&str>,
+        new_name: &str,
+    ) -> Result<RefactorPreview, AppError> {
+        let generated_ddl = if let Some(col) = column {
+            format!("-- Redis has no column structure, column rename not applicable: {} -> {}", col, new_name)
+        } else {
+            format!("RENAME \"{}\" \"{}\"", table, new_name)
+        };
+
+        Ok(RefactorPreview {
+            dependencies: vec![],
+            generated_ddl,
+        })
     }
 
     async fn list_indexes(&self, _table: &str) -> Result<Vec<IndexInfo>, AppError> {

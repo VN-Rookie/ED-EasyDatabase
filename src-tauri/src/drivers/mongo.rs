@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 
 use crate::drivers::Driver;
 use crate::error::AppError;
-use crate::model::{ColumnInfo, DeleteDocumentInput, IndexInfo, InsertDocumentInput, QueryResult, ReplaceDocumentInput, SchemaInfo, TableInfo, UpdateDocumentInput, BatchEditInput};
+use crate::model::{ColumnInfo, DeleteDocumentInput, IndexInfo, InsertDocumentInput, QueryResult, ReplaceDocumentInput, SchemaInfo, TableInfo, UpdateDocumentInput, BatchEditInput, TableSchemaInfo, RefactorPreview, DependencyInfo};
 
 pub struct MongoDriver {
     client: mongodb::Client,
@@ -112,8 +112,33 @@ fn json_map_to_doc(map: &Map<String, Value>) -> Result<Document, AppError> {
     Ok(doc)
 }
 
+fn bson_to_json(bson: &Bson) -> Value {
+    match bson {
+        Bson::Null => Value::Null,
+        Bson::Boolean(b) => Value::Bool(*b),
+        Bson::Int32(n) => json!(n),
+        Bson::Int64(n) => json!(n),
+        Bson::Double(f) => json!(f),
+        Bson::String(s) => Value::String(s.clone()),
+        Bson::ObjectId(oid) => Value::String(oid.to_hex()),
+        Bson::DateTime(dt) => Value::String(dt.to_string()),
+        Bson::Array(arr) => {
+            let elements: Vec<Value> = arr.iter().map(bson_to_json).collect();
+            Value::Array(elements)
+        }
+        Bson::Document(doc) => {
+            let mut map = serde_json::Map::new();
+            for (k, v) in doc {
+                map.insert(k.clone(), bson_to_json(v));
+            }
+            Value::Object(map)
+        }
+        other => Value::String(other.to_string()),
+    }
+}
+
 /// Convert fetched documents into a QueryResult (columns = union of field
-/// names across docs, `_id` first; exotic Bson degrades to its string form).
+/// names across docs, `_id` first; Bson maps recursively to JSON).
 fn docs_to_result(all_docs: Vec<Document>) -> QueryResult {
     if all_docs.is_empty() {
         return QueryResult { columns: vec![], rows: vec![], rows_affected: None };
@@ -137,15 +162,7 @@ fn docs_to_result(all_docs: Vec<Document>) -> QueryResult {
         for col in &columns {
             let val = match doc.get(col.as_str()) {
                 None => Value::Null,
-                Some(Bson::Null) => Value::Null,
-                Some(Bson::Boolean(b)) => Value::Bool(*b),
-                Some(Bson::Int32(n)) => json!(n),
-                Some(Bson::Int64(n)) => json!(n),
-                Some(Bson::Double(n)) => json!(n),
-                Some(Bson::String(s)) => Value::String(s.clone()),
-                Some(Bson::ObjectId(oid)) => Value::String(oid.to_hex()),
-                Some(Bson::DateTime(dt)) => Value::String(dt.to_string()),
-                Some(other) => Value::String(other.to_string()),
+                Some(other) => bson_to_json(other),
             };
             map.insert(col.clone(), val);
         }
@@ -438,6 +455,37 @@ impl Driver for MongoDriver {
             nullable: name != "_id",
             name,
         }).collect())
+     }
+
+    async fn describe_schema(&self) -> Result<Vec<TableSchemaInfo>, AppError> {
+        let collections = self.list_tables().await?;
+        Ok(collections.into_iter().map(|t| TableSchemaInfo {
+            table_name: t.name,
+            columns: vec![],
+        }).collect())
+    }
+
+    async fn get_refactor_preview(
+        &self,
+        table: &str,
+        column: Option<&str>,
+        new_name: &str,
+    ) -> Result<RefactorPreview, AppError> {
+        let generated_ddl = if let Some(col) = column {
+            // MongoDB rename field in collection
+            format!(
+                "db.{}.updateMany(\n  {{}},\n  {{ $rename: {{ \"{}\": \"{}\" }} }}\n)",
+                table, col, new_name
+            )
+        } else {
+            // MongoDB rename collection
+            format!("db.{}.renameCollection(\"{}\")", table, new_name)
+        };
+
+        Ok(RefactorPreview {
+            dependencies: vec![],
+            generated_ddl,
+        })
     }
 
     async fn list_indexes(&self, table: &str) -> Result<Vec<IndexInfo>, AppError> {
@@ -667,8 +715,46 @@ impl Driver for MongoDriver {
         })
     }
 
-    async fn apply_batch_edits(&self, _input: BatchEditInput) -> Result<QueryResult, AppError> {
-        Err(AppError::new("apply_batch_edits is not supported for MongoDB"))
+    async fn apply_batch_edits(&self, input: BatchEditInput) -> Result<QueryResult, AppError> {
+        let database = self.client.database(&self.current_db());
+        let mut rows_affected = 0u64;
+
+        // 1. Updates
+        for update in input.updates {
+            let collection: mongodb::Collection<Document> = database.collection(&update.table);
+            let pk_bson = coerce_pk_bson(&update.pk_column, json_to_bson(&update.pk_value));
+            let filter = mongodb::bson::doc! { &update.pk_column: pk_bson };
+            let update_doc = json_map_to_doc(&update.values)?;
+            let update_op = mongodb::bson::doc! { "$set": update_doc };
+            let res = collection.update_one(filter, update_op).await
+                .map_err(|e| AppError::new(e.to_string()))?;
+            rows_affected += res.modified_count;
+        }
+
+        // 2. Deletes
+        for delete in input.deletes {
+            let collection: mongodb::Collection<Document> = database.collection(&delete.table);
+            let pk_bson = coerce_pk_bson(&delete.pk_column, json_to_bson(&delete.pk_value));
+            let filter = mongodb::bson::doc! { &delete.pk_column: pk_bson };
+            let res = collection.delete_one(filter).await
+                .map_err(|e| AppError::new(e.to_string()))?;
+            rows_affected += res.deleted_count;
+        }
+
+        // 3. Inserts
+        for insert in input.inserts {
+            let collection: mongodb::Collection<Document> = database.collection(&insert.table);
+            let doc = json_map_to_doc(&insert.values)?;
+            let _res = collection.insert_one(doc).await
+                .map_err(|e| AppError::new(e.to_string()))?;
+            rows_affected += 1;
+        }
+
+        Ok(QueryResult {
+            columns: vec!["rows_affected".to_string()],
+            rows: vec![serde_json::json!({ "rows_affected": rows_affected })],
+            rows_affected: Some(rows_affected),
+        })
     }
 
     async fn bulk_insert(
