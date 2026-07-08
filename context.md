@@ -19,18 +19,14 @@ and MongoDB. AI query-gen and an MCP server are **secondary** features on top.
 
 - **Phase:** All Phases (Phase 0 to Phase 6) are now complete and verified.
 - **Done:**
-  - Integrated `keyring` (v4.1) for secure credential storage in OS Keychain; passwords replaced with placeholders on disk.
-  - Implemented Postgres dynamic multi-schema switching (mapping schemas to databases in the 3-level `ExplorerTree.tsx`) with session-level `search_path` changes.
-  - Added Views and Foreign tables in PostgreSQL schema explorer.
-  - Implemented transactional batch saves (`apply_batch_edits`) on Postgres and MySQL, fully wired to DataGrid for atomic writes.
-  - Semicolon-separated smart SQL statement splitting on cursor position in SQL Console.
-  - Built Settings shell supporting Theme, AI backends (presets, keys, models), and MCP configurations.
-  - Integrated Audit Log Viewer inside Settings displaying query history, with native CSV export capabilities.
-  - Built high-performance **Table Data Import** supporting stream CSV/JSON parsing, column mapping, and bulk insert (up to 5,000 parameters/batch) for Postgres, MySQL, and MongoDB.
-  - Implemented **Database Backup & Restore** supporting DDL/DML logical dumps and SQL script runners, fully integrated with action buttons in the Connection list.
-  - Verified backend and frontend code compilation, Vite bundling, and unit tests (`cargo test` ok).
-- **Active plan (next):** Project is fully feature-complete and production-ready.
-- **Next likely step:** Distribute application installer or explore advanced document/graph database drivers.
+  - Nâng cấp phần **Smart Autocomplete** trong SQL Console: Tích hợp autocomplete mặc định của CodeMirror 6 (PostgreSQL dialect) kèm theo custom metadata completion source thay vì override thô sơ.
+  - Tối ưu hóa **Schema Loading**: Gom truy vấn schema metadata của các bảng/cột thành duy nhất một câu lệnh SQL hiệu năng cao ở Backend (command `describe_schema`), thay vì gửi vòng lặp `describeTable` cho hàng chục bảng ở Client.
+  - Tích hợp **SQL Linting**: Tích hợp linter tĩnh trực quan bằng `@codemirror/lint` để cảnh báo hiệu năng thời gian thực ngay khi gõ (SELECT *, implicit comma joins, non-sargable query).
+  - Tích hợp **AI Quick Fix**: Triển khai nút "Fix with AI" trên giao diện console error giúp tự động sửa đổi mã SQL bị lỗi và cập nhật trực tiếp vào editor.
+  - Triển khai **Database Refactoring**: Tích hợp module đổi tên bảng và cột an toàn, tự động quét views/functions/stored procedures phụ thuộc trong database (Postgres & MySQL), tự động sửa đổi định nghĩa của chúng, hiển thị Refactor Preview Modal cho phép xem trước/sửa đổi DDL và thực thi đồng bộ trong 1 Transaction duy nhất.
+  - Các cải tiến khác trước đó: keyring integration, transactional batch saves, data import, database backup/restore.
+- **Active plan (next):** Hoàn thiện phân phối ứng dụng desktop hoặc tối ưu hóa hiệu năng các drivers cho DB lớn.
+- **Next likely step:** Tạo bundle cài đặt và phân phối ứng dụng Tauri.
 
 ---
 
@@ -93,7 +89,24 @@ cd src-tauri && cargo check  # fast Rust check
 
 ## Session log (append newest at top)
 
-### 2026-07-07 (latest)
+### 2026-07-08 (latest)
+- **Triển khai Database Refactoring** (`implement-database-refactoring.plan.md`):
+  - Bổ sung cấu trúc `DependencyInfo` và `RefactorPreview` trong Rust backend model.
+  - Triển khai phương thức `get_refactor_preview` trên driver để quét views phụ thuộc và routines (procedures/functions) phụ thuộc (bọc lệnh re-create DDL và ALTER rename trong single Transaction).
+  - Viết component `RefactorModal.tsx` cung cấp form đổi tên, preview dependency và cho phép edit/review SQL script trước khi chạy.
+  - Tích hợp tính năng Refactoring đổi tên bảng (ở sidebar `ExplorerTree.tsx` dropdown) và đổi tên cột (ở `StructureShell.tsx` khi xem cấu trúc cột).
+- **Triển khai SQL Linter & AI Quick Fix** (`implement-linter-and-ai-quick-fix.plan.md`):
+  - Cài đặt và tích hợp gói `@codemirror/lint` để tạo SQL Linter tĩnh trên editor (cảnh báo `SELECT *`, Comma implicit joins, và non-sargable query).
+  - Triển khai Tauri command `fix_sql_error` ở Rust backend để gọi AI (Claude/OpenAI/Ollama) sửa câu lệnh SQL lỗi dựa trên context schema và thông báo lỗi.
+  - Tích hợp nút "Fix with AI" vào vùng hiển thị lỗi thực thi SQL của console frontend để tự động sửa và apply câu lệnh đúng trực tiếp vào editor.
+- **Nâng cấp Autocomplete & Tối ưu hóa Schema loading** (`upgrade-autocomplete-schema-loader.plan.md`):
+  - Định nghĩa struct `TableSchemaInfo` và implement phương thức `describe_schema` trên trait `Driver` cho tất cả các driver (Postgres, MySQL, Mongo, Redis).
+  - Triển khai query gộp thông tin bảng/cột từ các bảng hệ thống `information_schema` đối với Postgres và MySQL chỉ trong 1 request.
+  - Tạo tauri command và frontend API `describeSchema` để tải gộp metadata thay vì dùng vòng lặp `describeTable`.
+  - Tích hợp autocomplete mặc định của CodeMirror 6 (PostgreSQL dialect) kèm theo custom metadata completion source thay vì override thô sơ.
+  - Kiểm tra thành công: `cargo test` OK (13 tests pass), `bun run typecheck` và `bun run build` của Vite biên dịch hoàn hảo.
+
+### 2026-07-07
 - **Implemented Data Import & Database Backup/Restore** (`import-and-snapshot.plan.md`):
   - Created backend tauri commands for CSV/JSON streaming imports, logical DDL/DML SQL backup, and script runners, configuring dependency on `csv` crate.
   - Implemented high-performance driver methods `bulk_insert` and `generate_logical_dump` for Postgres, MySQL, and MongoDB.

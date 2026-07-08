@@ -140,6 +140,10 @@ side) and MongoDB/SQL wire protocols.
 - **Tailwind v4** via `@tailwindcss/vite` (not PostCSS). Entry is
   `@import "tailwindcss"` in `App.css`. No `tailwind.config.js`.
 - **No browser dialogs** (`alert`/`confirm`/`prompt`) — use in-app toasts/confirm bars.
+- **Resizable Modals**: All modals and dialogs must support resizing by the user. Use the `resize overflow-hidden` CSS classes along with minimum constraints (`min-w-[...] min-h-[...]`) on the inner modal card. Design the modal wrapper as a `flex flex-col` container and make the body section scrollable (`flex-1 overflow-y-auto`) so the content scales correctly when resized.
+- **Icon Sizing**: Keep icons prominent and readable. Close buttons should use `size={18}`. Tab/status bar icons should use `size={16}` or larger. Button icon sizes should generally be `size={15}` (small) or `size={17}` (medium). Do not use sizes smaller than 14px unless absolutely necessary.
+- **Multi-language (i18n)**: Never hardcode user-facing strings in UI components. Always use the `useTranslation` hook (`src/hooks/useTranslation.ts`) and define the translations in `src/lib/i18n/mapping.ts` for both `en` (English) and `vi` (Vietnamese).
+- **No hover borders on document cards**: In "Tree" view mode or record visual cards, never add `hover:border-...` styles (keeps the UI cleaner and avoids distracting/jarring border transitions).
 
 ## Development Commands
 
