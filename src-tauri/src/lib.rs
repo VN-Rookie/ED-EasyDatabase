@@ -55,6 +55,8 @@ pub fn run() {
             commands::query::update_documents,
             commands::query::delete_documents,
             commands::query::replace_document,
+            commands::query::query_collection,
+            commands::query::count_documents,
             commands::settings::load_settings,
             commands::settings::save_settings,
             commands::settings::save_to_file,

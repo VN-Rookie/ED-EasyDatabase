@@ -60,6 +60,7 @@ export function SavedQueriesPanel({ currentSql, onLoad, onRun, onClose }: Props)
                 if (e.key === "Escape") { setShowSaveForm(false); setSavingName(""); }
               }}
               placeholder="Query name…"
+              autoComplete="off"
               className="w-full bg-[#21262d] border border-[#30363d] focus:border-blue-500 rounded-md px-2.5 py-1.5 text-xs text-[#e6edf3] outline-none placeholder:text-[#484f58] transition-colors"
             />
             <div className="flex gap-1.5">

@@ -52,6 +52,11 @@ interface ViewStore {
   sortDir: "asc" | "desc";
   tableFilters: FilterCondition[];
   mongoFilter: string;
+  mongoProject: string;
+  mongoSort: string;
+  mongoSkip: number;
+  mongoLimit: number;
+  tableTotalCount: number | null;
 
   // Query editor — multi-tab
   queryTabs: QueryTab[];
@@ -69,6 +74,11 @@ interface ViewStore {
   setSortDir:      (d: "asc" | "desc") => void;
   setTableFilters: (f: FilterCondition[]) => void;
   setMongoFilter:  (f: string) => void;
+  setMongoProject: (p: string) => void;
+  setMongoSort:    (s: string) => void;
+  setMongoSkip:    (s: number) => void;
+  setMongoLimit:   (l: number) => void;
+  setTableTotalCount: (c: number | null) => void;
 
   // Tab management
   addTab:          () => void;
@@ -115,6 +125,11 @@ export const useViewStore = create<ViewStore>((set, get) => ({
   sortDir: "asc",
   tableFilters: [],
   mongoFilter: "",
+  mongoProject: "",
+  mongoSort: "",
+  mongoSkip: 0,
+  mongoLimit: 0,
+  tableTotalCount: null,
 
   queryTabs: [firstTab],
   activeTabId: firstTab.id,
@@ -131,6 +146,11 @@ export const useViewStore = create<ViewStore>((set, get) => ({
   setSortDir:      (sortDir)      => set({ sortDir }),
   setTableFilters: (tableFilters) => set({ tableFilters }),
   setMongoFilter:  (mongoFilter)  => set({ mongoFilter }),
+  setMongoProject: (mongoProject) => set({ mongoProject }),
+  setMongoSort:    (mongoSort)    => set({ mongoSort }),
+  setMongoSkip:    (mongoSkip)    => set({ mongoSkip }),
+  setMongoLimit:   (mongoLimit)   => set({ mongoLimit }),
+  setTableTotalCount: (tableTotalCount) => set({ tableTotalCount }),
 
   // ── Tab management ────────────────────────────────────────────────────────
   addTab: () => set(s => {
@@ -182,6 +202,6 @@ export const useViewStore = create<ViewStore>((set, get) => ({
   reset: () => {
     const tab = newTab("Query 1");
     tabCounter = 2;
-    set({ activeView: "table", tableResult: null, tableLoading: false, tableError: null, page: 0, pageSize: 50, sortCol: null, sortDir: "asc", tableFilters: [], mongoFilter: "", queryTabs: [tab], activeTabId: tab.id });
+    set({ activeView: "table", tableResult: null, tableLoading: false, tableError: null, page: 0, pageSize: 50, sortCol: null, sortDir: "asc", tableFilters: [], mongoFilter: "", mongoProject: "", mongoSort: "", mongoSkip: 0, mongoLimit: 0, tableTotalCount: null, queryTabs: [tab], activeTabId: tab.id });
   },
 }));

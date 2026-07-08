@@ -53,6 +53,7 @@ export function SchemaTree() {
   } = useSchema();
 
   const [search, setSearch] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [expandedTableDetails, setExpandedTableDetails] = useState<Set<string>>(new Set());
 
   const activeMeta = activeConnections.find((c) => c.id === activeConnectionId);
@@ -180,6 +181,17 @@ export function SchemaTree() {
     : showingSchemas
     ? schemas.length
     : tables.length;
+
+  const activeItemsCount = showingDatabases
+    ? filteredDbs.length
+    : showingSchemas
+    ? filteredSchemas.length
+    : filteredTables.length;
+
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [search, activeItemsCount]);
+
   const label = showingDatabases
     ? "Databases"
     : showingSchemas
@@ -245,7 +257,39 @@ export function SchemaTree() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter…"
+              autoComplete="off"
               className="w-full bg-[#0d1117] border border-[#21262d] focus:border-[#30363d] rounded-lg pl-5 pr-5 py-1 text-[10px] text-[#e6edf3] placeholder:text-[#484f58] outline-none transition-colors"
+              onKeyDown={(e) => {
+                if (activeItemsCount > 0) {
+                  if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
+                    e.preventDefault();
+                    setHighlightedIndex(prev => (prev + 1) % activeItemsCount);
+                    return;
+                  }
+                  if (e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
+                    e.preventDefault();
+                    setHighlightedIndex(prev => (prev - 1 + activeItemsCount) % activeItemsCount);
+                    return;
+                  }
+                  if (e.key === "Enter") {
+                    if (highlightedIndex >= 0 && highlightedIndex < activeItemsCount) {
+                      e.preventDefault();
+                      if (showingDatabases) {
+                        const dbName = filteredDbs[highlightedIndex];
+                        if (activeConnectionId) selectDatabase(dbName, activeConnectionId);
+                      } else if (showingSchemas) {
+                        const schema = filteredSchemas[highlightedIndex];
+                        selectSchema(schema.name);
+                      } else {
+                        const table = filteredTables[highlightedIndex];
+                        handleSelectTable(table.name);
+                      }
+                      setSearch("");
+                      setHighlightedIndex(-1);
+                    }
+                  }
+                }
+              }}
             />
             {search && (
               <button
@@ -295,13 +339,17 @@ export function SchemaTree() {
           </div>
         ) : (
           <ul className="pl-1 pb-1 space-y-0.5">
-            {filteredDbs.map((dbName) => (
+            {filteredDbs.map((dbName, index) => (
               <li key={dbName}>
                 <button
                   onClick={() =>
                     activeConnectionId && selectDatabase(dbName, activeConnectionId)
                   }
-                  className="flex items-center gap-1.5 px-1 py-1.5 rounded-lg text-left transition-all text-[#7d8590] hover:bg-[#292e36] hover:text-[#e6edf3] w-full"
+                  className={`flex items-center gap-1.5 px-1 py-1.5 rounded-lg text-left transition-all w-full ${
+                    index === highlightedIndex
+                      ? "bg-blue-500/15 text-blue-300 border-l-2 border-blue-500 pl-1.5 font-medium"
+                      : "text-[#7d8590] hover:bg-[#292e36] hover:text-[#e6edf3]"
+                  }`}
                 >
                   <Database size={10} className="shrink-0 opacity-60" />
                   <span className="text-[11px] truncate font-mono">
@@ -321,11 +369,15 @@ export function SchemaTree() {
           </div>
         ) : (
           <ul className="pl-1 pb-1 space-y-0.5">
-            {filteredSchemas.map((schema) => (
+            {filteredSchemas.map((schema, index) => (
               <li key={schema.name}>
                 <button
                   onClick={() => selectSchema(schema.name)}
-                  className="flex items-center gap-1.5 px-1 py-1.5 rounded-lg text-left transition-all text-[#7d8590] hover:bg-[#292e36] hover:text-[#e6edf3] w-full"
+                  className={`flex items-center gap-1.5 px-1 py-1.5 rounded-lg text-left transition-all w-full ${
+                    index === highlightedIndex
+                      ? "bg-blue-500/15 text-blue-300 border-l-2 border-blue-500 pl-1.5 font-medium"
+                      : "text-[#7d8590] hover:bg-[#292e36] hover:text-[#e6edf3]"
+                  }`}
                 >
                   <Layers size={10} className="shrink-0 opacity-60" />
                   <span className="text-[11px] truncate font-mono">
@@ -346,7 +398,7 @@ export function SchemaTree() {
         </div>
       ) : (
         <ul className="pl-1 pb-1 space-y-0.5">
-          {filteredTables.map((t) => {
+          {filteredTables.map((t, index) => {
             const isSel = selectedTable === t.name;
             const tableKey = `table:${t.name}`;
             const isDetailsExpanded = expandedTableDetails.has(tableKey);
@@ -374,7 +426,9 @@ export function SchemaTree() {
                     onClick={() => handleSelectTable(t.name)}
                     className={`flex items-center gap-1.5 px-1 py-1.5 rounded-lg text-left transition-all flex-1 ${
                       isSel
-                        ? "bg-blue-500/15 text-blue-300"
+                        ? "bg-blue-500/15 text-blue-300 font-semibold"
+                        : index === highlightedIndex
+                        ? "bg-blue-500/15 text-blue-300 border-l-2 border-blue-500 pl-1.5 font-medium"
                         : "text-[#7d8590] hover:bg-[#292e36] hover:text-[#e6edf3]"
                     }`}
                   >

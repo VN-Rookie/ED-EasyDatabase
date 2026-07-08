@@ -4,7 +4,7 @@ import { DatabaseZap, ChevronLeft, ChevronRight, RefreshCw, Loader2, Table2, Ter
 import { useViewStore } from "../stores/viewStore";
 import { useSchemaStore } from "../stores/schemaStore";
 import { useConnectionStore } from "../stores/connectionStore";
-import { useSchema, PAGE_SIZE } from "../hooks/useSchema";
+import { useSchema } from "../hooks/useSchema";
 import { useQuery } from "../hooks/useQuery";
 import { DataGrid } from "./DataGrid";
 import { SqlEditor } from "./SqlEditor";
@@ -34,6 +34,11 @@ export function MainPanel() {
     tableResult, tableLoading, tableError,
     page, sortCol, sortDir, tableFilters, setTableFilters,
     mongoFilter, setMongoFilter,
+    mongoProject, setMongoProject,
+    mongoSort, setMongoSort,
+    mongoSkip, setMongoSkip,
+    mongoLimit, setMongoLimit,
+    tableTotalCount,
     pageSize, setPageSize,
     queryTabs, activeTabId,
     queryHistory,
@@ -224,7 +229,10 @@ export function MainPanel() {
     if (!selectedTable) return;
     const p = page + 1; setPage(p); loadTableData(selectedTable, p, sortCol, sortDir);
   };
-  const hasNextPage = (tableResult?.rows.length ?? 0) === PAGE_SIZE;
+  const expectedLimit = isMongo && mongoLimit > 0 ? mongoLimit : pageSize;
+  const hasNextPage = tableTotalCount !== null
+    ? (page + 1) * expectedLimit < tableTotalCount
+    : (tableResult?.rows.length ?? 0) === expectedLimit;
 
   // ── Tabs ──────────────────────────────────────────────────────────────────────
   const TABS: { id: string; label: string; icon: React.ElementType }[] = isMongo
@@ -249,7 +257,11 @@ export function MainPanel() {
         <ChevronLeft size={13} /> Prev
       </button>
       <div className="flex items-center gap-3">
-        <span className="text-[11px] text-[#7d8590] font-medium tabular-nums">Page {page + 1}</span>
+        <span className="text-[11px] text-[#7d8590] font-medium tabular-nums">
+          Page {page + 1}
+          {tableTotalCount !== null && ` of ${Math.ceil(tableTotalCount / expectedLimit)}`}
+          {tableTotalCount !== null && ` (Total: ${tableTotalCount.toLocaleString()} items)`}
+        </span>
         <select
           value={pageSize}
           onChange={e => {
@@ -299,7 +311,12 @@ export function MainPanel() {
             </span>
           )}
           {tableResult && (activeView === "table" || activeView === "document") && (
-            <span className="text-[11px] text-[#7d8590]">{tableResult.rows.length} rows</span>
+            <span className="text-[11px] text-[#7d8590]">
+              {tableTotalCount !== null
+                ? `${tableResult.rows.length} of ${tableTotalCount.toLocaleString()}`
+                : tableResult.rows.length}{" "}
+              rows
+            </span>
           )}
           {activeView === "query" && (
             <button onClick={() => setShowSaved(v => !v)} title="Saved queries"
@@ -342,7 +359,21 @@ export function MainPanel() {
                 isMongo={isMongo}
                 mongoFilter={mongoFilter}
                 onMongoFilterChange={setMongoFilter}
-                hasActiveFilter={isMongo ? (mongoFilter.trim() !== "" && mongoFilter.trim() !== "{}") : tableFilters.length > 0}
+                mongoProject={mongoProject}
+                onMongoProjectChange={setMongoProject}
+                mongoSort={mongoSort}
+                onMongoSortChange={setMongoSort}
+                mongoSkip={mongoSkip}
+                onMongoSkipChange={setMongoSkip}
+                mongoLimit={mongoLimit}
+                onMongoLimitChange={setMongoLimit}
+                hasActiveFilter={isMongo ? (
+                  (mongoFilter.trim() !== "" && mongoFilter.trim() !== "{}") ||
+                  mongoProject.trim() !== "" ||
+                  mongoSort.trim() !== "" ||
+                  mongoSkip > 0 ||
+                  mongoLimit > 0
+                ) : tableFilters.length > 0}
               />
               <div className="flex-1 overflow-hidden flex flex-col">
                 <DataGrid
@@ -390,7 +421,21 @@ export function MainPanel() {
                 isMongo={true}
                 mongoFilter={mongoFilter}
                 onMongoFilterChange={setMongoFilter}
-                hasActiveFilter={mongoFilter.trim() !== "" && mongoFilter.trim() !== "{}"}
+                mongoProject={mongoProject}
+                onMongoProjectChange={setMongoProject}
+                mongoSort={mongoSort}
+                onMongoSortChange={setMongoSort}
+                mongoSkip={mongoSkip}
+                onMongoSkipChange={setMongoSkip}
+                mongoLimit={mongoLimit}
+                onMongoLimitChange={setMongoLimit}
+                hasActiveFilter={
+                  (mongoFilter.trim() !== "" && mongoFilter.trim() !== "{}") ||
+                  mongoProject.trim() !== "" ||
+                  mongoSort.trim() !== "" ||
+                  mongoSkip > 0 ||
+                  mongoLimit > 0
+                }
               />
               <DocumentView
                 result={tableResult}

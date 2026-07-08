@@ -131,17 +131,28 @@ export function useSchema() {
 
     try {
       if (isMongo) {
-        // Native MongoDB — use query_collection with MQL filter
+        // Native MongoDB — use query_collection with MQL filter and advanced options
+        const limitVal = vs.mongoLimit > 0 ? vs.mongoLimit : pageSize;
+        const skipVal = vs.mongoSkip > 0 ? vs.mongoSkip : page * limitVal;
         const result = await invoke<QueryResult>("query_collection", {
           connId,
           collection: table,
           filterJson: vs.mongoFilter.trim() || "{}",
+          projectJson: vs.mongoProject.trim() || null,
+          sortJson: vs.mongoSort.trim() || null,
           sortField: sortCol ?? null,
           sortAsc: sortDir === "asc",
-          limit: pageSize,
-          skip: page * pageSize,
+          limit: limitVal,
+          skip: skipVal,
         });
         vs.setTableResult(result);
+
+        const total = await invoke<number>("count_documents", {
+          connId,
+          collection: table,
+          filterJson: vs.mongoFilter.trim() || "{}",
+        });
+        vs.setTableTotalCount(total);
       } else {
         // SQL path — Postgres / MySQL
         const activeFilters = (filters ?? vs.tableFilters).filter(f => f.column);
@@ -164,10 +175,16 @@ export function useSchema() {
         const sql = `SELECT * FROM "${table}"${whereClause}${orderClause} LIMIT ${pageSize} OFFSET ${page * pageSize}`;
         const result = await invoke<QueryResult>("run_query", { connId, sql });
         vs.setTableResult(result);
+
+        const countSql = `SELECT COUNT(*) AS c FROM "${table}"${whereClause}`;
+        const countResult = await invoke<QueryResult>("run_query", { connId, sql: countSql });
+        const total = Number(countResult.rows[0]?.c ?? countResult.rows[0]?.C ?? 0);
+        vs.setTableTotalCount(total);
       }
     } catch (e) {
       vs.setTableError(String(e));
       vs.setTableResult(null);
+      vs.setTableTotalCount(null);
     } finally {
       vs.setTableLoading(false);
     }

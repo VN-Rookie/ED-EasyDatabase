@@ -27,6 +27,7 @@ function Input({ value, onChange, type = "text", placeholder, mono = false, clas
     <input
       type={type} value={value} placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
+      autoComplete="off"
       className={`w-full bg-[#21262d] border border-[#30363d] hover:border-[#484f58] focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-[#e6edf3] outline-none transition-colors placeholder:text-[#484f58] ${mono ? "font-mono" : ""} ${className}`}
     />
   );

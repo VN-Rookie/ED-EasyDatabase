@@ -746,6 +746,7 @@ export function DataGrid({
                             onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); stageEdit(); } if (e.key === "Escape") setEditing(null); }}
                             onBlur={() => { if (!committingRef.current) stageEdit(); }}
                             onClick={e => e.stopPropagation()}
+                            autoComplete="off"
                             className="w-full min-w-[6rem] text-xs bg-[#21262d] border border-blue-500/60 rounded-lg px-2 py-1 outline-none font-mono text-[#e6edf3]" />
                         ) : (
                           <>
@@ -794,6 +795,7 @@ export function DataGrid({
                     <span className="text-[10px] text-[#7d8590] font-mono shrink-0">{col}:</span>
                     <input value={insertValues[col] ?? ""} onChange={e => setInsertValues(v => ({ ...v!, [col]: e.target.value }))}
                       placeholder="NULL"
+                      autoComplete="off"
                       className="flex-1 min-w-[60px] bg-[#21262d] border border-[#484f58] focus:border-blue-500 rounded-lg px-2 py-1 text-xs text-[#e6edf3] font-mono outline-none transition-colors" />
                   </div>
                 ))}

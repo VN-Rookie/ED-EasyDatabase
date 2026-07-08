@@ -650,6 +650,74 @@ impl Driver for MongoDriver {
         })
     }
 
+    async fn query_collection(
+        &self,
+        collection: &str,
+        filter_json: &str,
+        project_json: Option<&str>,
+        sort_json: Option<&str>,
+        sort_field: Option<&str>,
+        sort_asc: bool,
+        limit: i64,
+        skip: u64,
+    ) -> Result<QueryResult, AppError> {
+        use mongodb::bson::Document;
+        use futures_util::StreamExt;
+
+        let db = self.current_db();
+        let coll: mongodb::Collection<Document> = self.client.database(&db).collection(collection);
+
+        let filter = parse_json_doc(filter_json)?;
+
+        let mut find_options = coll.find(filter);
+        find_options = find_options.limit(limit).skip(skip);
+
+        if let Some(proj_str) = project_json {
+            let proj_trimmed = proj_str.trim();
+            if !proj_trimmed.is_empty() && proj_trimmed != "{}" {
+                let projection = parse_json_doc(proj_trimmed)?;
+                find_options = find_options.projection(projection);
+            }
+        }
+
+        let mut sorted = false;
+        if let Some(sort_str) = sort_json {
+            let sort_trimmed = sort_str.trim();
+            if !sort_trimmed.is_empty() && sort_trimmed != "{}" {
+                let sort_doc = parse_json_doc(sort_trimmed)?;
+                find_options = find_options.sort(sort_doc);
+                sorted = true;
+            }
+        }
+
+        if !sorted {
+            if let Some(field) = sort_field {
+                if !field.is_empty() {
+                    let direction = if sort_asc { 1i32 } else { -1i32 };
+                    find_options = find_options.sort(mongodb::bson::doc! { field: direction });
+                }
+            }
+        }
+
+        let mut cursor = find_options.await
+            .map_err(|e| AppError::new(e.to_string()))?;
+
+        let mut all_docs: Vec<Document> = Vec::new();
+        while let Some(doc) = cursor.next().await {
+            all_docs.push(doc.map_err(|e| AppError::new(e.to_string()))?);
+        }
+
+        Ok(docs_to_result(all_docs))
+    }
+
+    async fn count_documents(&self, table: &str, filter_json: &str) -> Result<u64, AppError> {
+        let db = self.current_db();
+        let coll: mongodb::Collection<Document> = self.client.database(&db).collection(table);
+        let filter = parse_json_doc(filter_json)?;
+        coll.count_documents(filter).await
+            .map_err(|e| AppError::new(e.to_string()))
+    }
+
     async fn insert_row(&self, input: crate::model::InsertRowInput) -> Result<QueryResult, AppError> {
         let collection: mongodb::Collection<Document> = self.client
             .database(&self.current_db())

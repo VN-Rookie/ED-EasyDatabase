@@ -55,3 +55,40 @@ pub async fn replace_document(
 ) -> Result<QueryResult, AppError> {
     state.driver(&conn_id)?.replace_document(input).await
 }
+
+#[tauri::command]
+pub async fn query_collection(
+    conn_id: String,
+    collection: String,
+    filter_json: String,
+    project_json: Option<String>,
+    sort_json: Option<String>,
+    sort_field: Option<String>,
+    sort_asc: bool,
+    limit: i64,
+    skip: u64,
+    state: State<'_, AppState>,
+) -> Result<QueryResult, AppError> {
+    state.driver(&conn_id)?
+        .query_collection(
+            &collection,
+            &filter_json,
+            project_json.as_deref(),
+            sort_json.as_deref(),
+            sort_field.as_deref(),
+            sort_asc,
+            limit,
+            skip,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn count_documents(
+    conn_id: String,
+    collection: String,
+    filter_json: String,
+    state: State<'_, AppState>,
+) -> Result<u64, AppError> {
+    state.driver(&conn_id)?.count_documents(&collection, &filter_json).await
+}

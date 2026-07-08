@@ -77,6 +77,26 @@ pub trait Driver: Send + Sync {
         Err(AppError::new("replace_document is not supported for this engine"))
     }
 
+    /// Query a MongoDB collection with optional filter, projection, sort, limit, skip. Default: unsupported.
+    async fn query_collection(
+        &self,
+        _collection: &str,
+        _filter_json: &str,
+        _project_json: Option<&str>,
+        _sort_json: Option<&str>,
+        _sort_field: Option<&str>,
+        _sort_asc: bool,
+        _limit: i64,
+        _skip: u64,
+    ) -> Result<QueryResult, AppError> {
+        Err(AppError::new("query_collection is not supported for this engine"))
+    }
+
+    /// Count documents matching a filter (MongoDB only). Default: unsupported.
+    async fn count_documents(&self, _table: &str, _filter_json: &str) -> Result<u64, AppError> {
+        Err(AppError::new("count_documents is not supported for this engine"))
+    }
+
     /// Bulk insert data into a table.
     async fn bulk_insert(
         &self,
